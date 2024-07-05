@@ -19,6 +19,10 @@ CLASS Transformer
       METHOD FeedForward(aInput)
       METHOD LayerNorm(aInput)
       METHOD ReLU(aInput)
+      METHOD Mean(aVector)
+      METHOD Variance(aVector, nMean)
+      METHOD ElementWiseAddition(aMatrix1, aMatrix2)
+      METHOD ElementWiseMultiplication(aMatrix1, aMatrix2)
       
 ENDCLASS
 
@@ -231,3 +235,40 @@ METHOD ReLU(aInput) CLASS Transformer
    NEXT
 
 RETURN aOutput
+
+METHOD Mean(aVector) CLASS Transformer
+   LOCAL nSum := 0
+   AEval(aVector, {|x| nSum += x})
+RETURN nSum / Len(aVector)
+
+METHOD Variance(aVector, nMean) CLASS Transformer
+   LOCAL nSum := 0
+   AEval(aVector, {|x| nSum += (x - nMean) ^ 2})
+RETURN nSum / Len(aVector)
+
+METHOD ElementWiseAddition(aMatrix1, aMatrix2) CLASS Transformer
+   LOCAL aResult := {}
+   LOCAL i, j
+
+   FOR i := 1 TO Len(aMatrix1)
+      AAdd(aResult, Array(Len(aMatrix1[i])))
+      FOR j := 1 TO Len(aMatrix1[i])
+         aResult[i][j] := aMatrix1[i][j] + aMatrix2[i][j]
+      NEXT
+   NEXT
+
+RETURN aResult
+
+METHOD ElementWiseMultiplication(aMatrix1, aMatrix2) CLASS Transformer
+   LOCAL aResult := {}
+   LOCAL i, j
+
+   FOR i := 1 TO Len(aMatrix1)
+      AAdd(aResult, Array(Len(aMatrix1[i])))
+      FOR j := 1 TO Len(aMatrix1[i])
+         aResult[i][j] := aMatrix1[i][j] * aMatrix2[i][j]
+      NEXT
+   NEXT
+
+RETURN aResult
+
