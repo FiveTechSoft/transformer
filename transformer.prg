@@ -10,6 +10,7 @@ CLASS Transformer
       METHOD New(nHeads, nModelDim, nFeedForwardDim)
       METHOD Forward(aInput)
       METHOD MultiHeadAttention(aQuery, aKey, aValue)
+      METHOD DotProductAttention(aQuery, aKey, aValue)
       METHOD FeedForward(aInput)
       METHOD LayerNorm(aInput)
       
@@ -59,6 +60,23 @@ METHOD MultiHeadAttention(aQuery, aKey, aValue) CLASS Transformer
    aProjected := ::LinearProjection(aConcatenated, ::nModelDim)
 
 RETURN aProjected
+
+METHOD DotProductAttention(aQuery, aKey, aValue) CLASS Transformer
+   LOCAL aScores, aSoftMaxScores, aOutput
+   LOCAL nDimK := Len(aKey[1])
+
+   // Calcular puntuaciones de atención
+   aScores := ::MatMul(aQuery, ::Transpose(aKey))
+   AEval(aScores, {|a| AEval(a, {|x, i| a[i] := x / Sqrt(nDimK) })})
+
+   // Aplicar softmax
+   aSoftMaxScores := {}
+   AEval(aScores, {|a| AAdd(aSoftMaxScores, ::SoftMax(a))})
+
+   // Calcular el output final
+   aOutput := ::MatMul(aSoftMaxScores, aValue)
+
+RETURN aOutput
 
 METHOD FeedForward(aInput) CLASS Transformer
    // Implementación simplificada de la capa feed-forward
