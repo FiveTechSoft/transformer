@@ -186,9 +186,39 @@ METHOD FeedForward(aInput) CLASS Transformer
 RETURN aOutput
 
 METHOD LayerNorm(aInput) CLASS Transformer
-   // Implementación simplificada de normalización de capa
-   // En una implementación real, esto normalizaría los valores de entrada
-   RETURN aInput // Placeholder
+   LOCAL aOutput := {}
+   LOCAL aGamma := {}
+   LOCAL aBeta := {}
+   LOCAL nMean, nVariance, nEpsilon := 1e-8
+   LOCAL i, j, aTemp
+
+   // Inicializar parámetros aprendibles gamma y beta
+   FOR i := 1 TO Len(aInput[1])
+      AAdd(aGamma, 1)  // Inicializado a 1
+      AAdd(aBeta, 0)   // Inicializado a 0
+   NEXT
+
+   // Normalizar cada vector de entrada
+   FOR i := 1 TO Len(aInput)
+      // Calcular media y varianza
+      nMean := ::Mean(aInput[i])
+      nVariance := ::Variance(aInput[i], nMean)
+
+      // Normalizar
+      aTemp := Array(Len(aInput[i]))
+      FOR j := 1 TO Len(aInput[i])
+         aTemp[j] := (aInput[i][j] - nMean) / Sqrt(nVariance + nEpsilon)
+      NEXT
+
+      // Aplicar gamma y beta
+      FOR j := 1 TO Len(aTemp)
+         aTemp[j] := aGamma[j] * aTemp[j] + aBeta[j]
+      NEXT
+
+      AAdd(aOutput, aTemp)
+   NEXT
+
+RETURN aOutput
 
 METHOD ReLU(aInput) CLASS Transformer
    LOCAL aOutput := AClone(aInput)
