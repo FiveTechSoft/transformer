@@ -18,6 +18,7 @@ CLASS Transformer
       METHOD SoftMax(aVector)
       METHOD FeedForward(aInput)
       METHOD LayerNorm(aInput)
+      METHOD ReLU(aInput)
       
 ENDCLASS
 
@@ -188,3 +189,15 @@ METHOD LayerNorm(aInput) CLASS Transformer
    // Implementación simplificada de normalización de capa
    // En una implementación real, esto normalizaría los valores de entrada
    RETURN aInput // Placeholder
+
+METHOD ReLU(aInput) CLASS Transformer
+   LOCAL aOutput := AClone(aInput)
+   LOCAL i, j
+
+   FOR i := 1 TO Len(aOutput)
+      FOR j := 1 TO Len(aOutput[i])
+         aOutput[i][j] := Max(0, aOutput[i][j])
+      NEXT
+   NEXT
+
+RETURN aOutput
