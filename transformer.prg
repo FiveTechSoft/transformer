@@ -12,6 +12,7 @@ CLASS Transformer
       METHOD MultiHeadAttention(aQuery, aKey, aValue)
       METHOD DotProductAttention(aQuery, aKey, aValue)
       METHOD LinearProjection(aInput, nOutputDim)
+      METHOD LinearTransformation(aInput, nOutputDim)
       METHOD MatMul(aMatrix1, aMatrix2)
       METHOD Transpose(aMatrix)  
       METHOD SoftMax(aVector)
@@ -95,6 +96,34 @@ METHOD LinearProjection(aInput, nOutputDim) CLASS Transformer
 
    // Realizar la proyección lineal
    aOutput := ::MatMul(aInput, aWeights)
+
+RETURN aOutput
+
+METHOD LinearTransformation(aInput, nOutputDim) CLASS Transformer
+   LOCAL aOutput := {}
+   LOCAL aWeights := {}
+   LOCAL aBiases := {}
+   LOCAL i, j
+
+   // Inicializar pesos aleatorios (en una implementación real, estos serían parámetros entrenables)
+   FOR i := 1 TO Len(aInput[1])
+      AAdd(aWeights, Array(nOutputDim))
+      AEval(aWeights[i], {|x| HB_RANDOM() / HB_RANDOM(1) - 0.5 })
+   NEXT
+
+   // Inicializar biases
+   aBiases := Array(nOutputDim)
+   AEval(aBiases, {|x| HB_RANDOM() / HB_RANDOM(1) - 0.5 })
+
+   // Realizar la transformación lineal: output = input * weights + biases
+   aOutput := ::MatMul(aInput, aWeights)
+
+   // Añadir biases
+   FOR i := 1 TO Len(aOutput)
+      FOR j := 1 TO Len(aOutput[i])
+         aOutput[i][j] += aBiases[j]
+      NEXT
+   NEXT
 
 RETURN aOutput
 
