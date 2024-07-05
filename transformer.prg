@@ -32,9 +32,33 @@ METHOD Forward(aInput) CLASS Transformer
 RETURN aFeedForwardOutput
 
 METHOD MultiHeadAttention(aQuery, aKey, aValue) CLASS Transformer
-   // Implementación simplificada de atención multi-cabeza
-   // En una implementación real, esto implicaría operaciones matriciales complejas
-   RETURN aQuery // Placeholder
+   LOCAL nHeadDim := ::nModelDim / ::nHeads
+   LOCAL aHeadOutputs := {}
+   LOCAL i, aQ, aK, aV, aHeadOutput, aConcatenated, aProjected
+
+   // Dividir en cabezas
+   FOR i := 1 TO ::nHeads
+      aQ := ::LinearProjection(aQuery, nHeadDim)
+      aK := ::LinearProjection(aKey, nHeadDim)
+      aV := ::LinearProjection(aValue, nHeadDim)
+      
+      // Calcular la atención para esta cabeza
+      aHeadOutput := ::DotProductAttention(aQ, aK, aV)
+      AAdd(aHeadOutputs, aHeadOutput)
+   NEXT
+
+   // Concatenar las salidas de todas las cabezas
+   aConcatenated := {}
+   FOR i := 1 TO Len(aHeadOutputs[1])
+      AAdd(aConcatenated, ASize(Array(0), ::nModelDim))
+      AFill(aConcatenated[i], 0)
+      AEval(aHeadOutputs, {|a, j| AEval(a[i], {|x, k| aConcatenated[i][k + (j-1)*nHeadDim] += x })})
+   NEXT
+
+   // Proyección lineal final
+   aProjected := ::LinearProjection(aConcatenated, ::nModelDim)
+
+RETURN aProjected
 
 METHOD FeedForward(aInput) CLASS Transformer
    // Implementación simplificada de la capa feed-forward
