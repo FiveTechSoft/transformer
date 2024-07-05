@@ -13,6 +13,7 @@ CLASS Transformer
       METHOD DotProductAttention(aQuery, aKey, aValue)
       METHOD LinearProjection(aInput, nOutputDim)
       METHOD MatMul(aMatrix1, aMatrix2)
+      METHOD Transpose(aMatrix)  
       METHOD FeedForward(aInput)
       METHOD LayerNorm(aInput)
       
@@ -108,6 +109,19 @@ METHOD MatMul(aMatrix1, aMatrix2) CLASS Transformer
             nSum += aMatrix1[i][k] * aMatrix2[k][j]
          NEXT
          aResult[i][j] := nSum
+      NEXT
+   NEXT
+
+RETURN aResult
+
+METHOD Transpose(aMatrix) CLASS Transformer
+   LOCAL aResult := {}
+   LOCAL i, j
+
+   FOR i := 1 TO Len(aMatrix[1])
+      AAdd(aResult, Array(Len(aMatrix)))
+      FOR j := 1 TO Len(aMatrix)
+         aResult[i][j] := aMatrix[j][i]
       NEXT
    NEXT
 
