@@ -12,6 +12,7 @@ CLASS Transformer
       METHOD MultiHeadAttention(aQuery, aKey, aValue)
       METHOD DotProductAttention(aQuery, aKey, aValue)
       METHOD LinearProjection(aInput, nOutputDim)
+      METHOD MatMul(aMatrix1, aMatrix2)
       METHOD FeedForward(aInput)
       METHOD LayerNorm(aInput)
       
@@ -94,6 +95,23 @@ METHOD LinearProjection(aInput, nOutputDim) CLASS Transformer
    aOutput := ::MatMul(aInput, aWeights)
 
 RETURN aOutput
+
+METHOD MatMul(aMatrix1, aMatrix2) CLASS Transformer
+   LOCAL aResult := {}
+   LOCAL i, j, k, nSum
+
+   FOR i := 1 TO Len(aMatrix1)
+      AAdd(aResult, Array(Len(aMatrix2[1])))
+      FOR j := 1 TO Len(aMatrix2[1])
+         nSum := 0
+         FOR k := 1 TO Len(aMatrix1[1])
+            nSum += aMatrix1[i][k] * aMatrix2[k][j]
+         NEXT
+         aResult[i][j] := nSum
+      NEXT
+   NEXT
+
+RETURN aResult
 
 METHOD FeedForward(aInput) CLASS Transformer
    // Implementación simplificada de la capa feed-forward
