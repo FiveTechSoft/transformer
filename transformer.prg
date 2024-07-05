@@ -14,6 +14,7 @@ CLASS Transformer
       METHOD LinearProjection(aInput, nOutputDim)
       METHOD MatMul(aMatrix1, aMatrix2)
       METHOD Transpose(aMatrix)  
+      METHOD SoftMax(aVector)
       METHOD FeedForward(aInput)
       METHOD LayerNorm(aInput)
       
@@ -124,6 +125,19 @@ METHOD Transpose(aMatrix) CLASS Transformer
          aResult[i][j] := aMatrix[j][i]
       NEXT
    NEXT
+
+RETURN aResult
+
+METHOD SoftMax(aVector) CLASS Transformer
+   LOCAL aResult := AClone(aVector)
+   LOCAL nSum := 0
+   LOCAL i
+
+   // Aplicar exponencial y sumar
+   AEval(aResult, {|x, i| aResult[i] := Exp(x), nSum += aResult[i] })
+
+   // Normalizar
+   AEval(aResult, {|x, i| aResult[i] := x / nSum })
 
 RETURN aResult
 
