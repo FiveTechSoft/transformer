@@ -5,32 +5,102 @@ CLASS Transformer
       VAR nHeads
       VAR nModelDim
       VAR nFeedForwardDim
+      VAR nMaxSeqLength
+      VAR aPositionalEncoding
       
    EXPORTED:
-      METHOD New(nHeads, nModelDim, nFeedForwardDim)
+      METHOD New(nHeads, nModelDim, nFeedForwardDim, nMaxSeqLength)
       METHOD Forward(aInput)
       METHOD MultiHeadAttention(aQuery, aKey, aValue)
-      METHOD DotProductAttention(aQuery, aKey, aValue)
-      METHOD LinearProjection(aInput, nOutputDim)
-      METHOD LinearTransformation(aInput, nOutputDim)
-      METHOD MatMul(aMatrix1, aMatrix2)
-      METHOD Transpose(aMatrix)  
-      METHOD SoftMax(aVector)
       METHOD FeedForward(aInput)
       METHOD LayerNorm(aInput)
+      METHOD PositionalEncoding(aInput)
+      METHOD Encode(aInput)
+      METHOD Decode(aInput, aEncoderOutput)
+      
+   PROTECTED:
+      METHOD DotProductAttention(aQuery, aKey, aValue)
+      METHOD LinearProjection(aInput, nOutputDim)
+      METHOD MatMul(aMatrix1, aMatrix2)
+      METHOD Transpose(aMatrix)
+      METHOD SoftMax(aVector)
       METHOD ReLU(aInput)
       METHOD Mean(aVector)
       METHOD Variance(aVector, nMean)
       METHOD ElementWiseAddition(aMatrix1, aMatrix2)
       METHOD ElementWiseMultiplication(aMatrix1, aMatrix2)
-      
+      METHOD GeneratePositionalEncoding()
+
 ENDCLASS
 
-METHOD New(nHeads, nModelDim, nFeedForwardDim) CLASS Transformer
+METHOD New(nHeads, nModelDim, nFeedForwardDim, nMaxSeqLength) CLASS Transformer
    ::nHeads := nHeads
    ::nModelDim := nModelDim
    ::nFeedForwardDim := nFeedForwardDim
+   ::nMaxSeqLength := nMaxSeqLength
+   ::GeneratePositionalEncoding()
 RETURN Self
+
+METHOD Forward(aInput) CLASS Transformer
+   LOCAL aEncodedInput, aOutput
+   
+   aEncodedInput := ::Encode(aInput)
+   aOutput := ::Decode(aInput, aEncodedInput)
+RETURN aOutput
+
+METHOD Encode(aInput) CLASS Transformer
+   LOCAL aPositionalInput, aAttOutput, aFeedForwardOutput
+   
+   aPositionalInput := ::PositionalEncoding(aInput)
+   aAttOutput := ::MultiHeadAttention(aPositionalInput, aPositionalInput, aPositionalInput)
+   aAttOutput := ::LayerNorm(::ElementWiseAddition(aPositionalInput, aAttOutput))
+   
+   aFeedForwardOutput := ::FeedForward(aAttOutput)
+   aFeedForwardOutput := ::LayerNorm(::ElementWiseAddition(aAttOutput, aFeedForwardOutput))
+RETURN aFeedForwardOutput
+
+METHOD Decode(aInput, aEncoderOutput) CLASS Transformer
+   LOCAL aPositionalInput, aSelfAttOutput, aCrossAttOutput, aFeedForwardOutput
+   
+   aPositionalInput := ::PositionalEncoding(aInput)
+   aSelfAttOutput := ::MultiHeadAttention(aPositionalInput, aPositionalInput, aPositionalInput)
+   aSelfAttOutput := ::LayerNorm(::ElementWiseAddition(aPositionalInput, aSelfAttOutput))
+   
+   aCrossAttOutput := ::MultiHeadAttention(aSelfAttOutput, aEncoderOutput, aEncoderOutput)
+   aCrossAttOutput := ::LayerNorm(::ElementWiseAddition(aSelfAttOutput, aCrossAttOutput))
+   
+   aFeedForwardOutput := ::FeedForward(aCrossAttOutput)
+   aFeedForwardOutput := ::LayerNorm(::ElementWiseAddition(aCrossAttOutput, aFeedForwardOutput))
+RETURN aFeedForwardOutput
+
+METHOD PositionalEncoding(aInput) CLASS Transformer
+   LOCAL aOutput := AClone(aInput)
+   LOCAL i, j
+   
+   FOR i := 1 TO Len(aInput)
+      FOR j := 1 TO Len(aInput[i])
+         aOutput[i][j] += ::aPositionalEncoding[i][j]
+      NEXT
+   NEXT
+RETURN aOutput
+
+METHOD GeneratePositionalEncoding() CLASS Transformer
+   LOCAL i, j, nPos, nDim
+   
+   ::aPositionalEncoding := Array(::nMaxSeqLength)
+   FOR i := 1 TO ::nMaxSeqLength
+      ::aPositionalEncoding[i] := Array(::nModelDim)
+      FOR j := 1 TO ::nModelDim
+         nPos := i
+         nDim := j
+         IF nDim % 2 == 0
+            ::aPositionalEncoding[i][j] := Cos(nPos / (10000 ^ (nDim / ::nModelDim)))
+         ELSE
+            ::aPositionalEncoding[i][j] := Sin(nPos / (10000 ^ ((nDim - 1) / ::nModelDim)))
+         ENDIF
+      NEXT
+   NEXT
+RETURN NIL
 
 METHOD Forward(aInput) CLASS Transformer
    LOCAL aAttOutput, aFeedForwardOutput
