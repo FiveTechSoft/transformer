@@ -142,9 +142,18 @@ METHOD SoftMax(aVector) CLASS Transformer
 RETURN aResult
 
 METHOD FeedForward(aInput) CLASS Transformer
-   // Implementación simplificada de la capa feed-forward
-   // En una implementación real, esto implicaría operaciones matriciales y activaciones
-   RETURN aInput // Placeholder
+   LOCAL aHidden, aOutput
+
+   // Primera transformación lineal
+   aHidden := ::LinearTransformation(aInput, ::nFeedForwardDim)
+
+   // Aplicar ReLU
+   aHidden := ::ReLU(aHidden)
+
+   // Segunda transformación lineal
+   aOutput := ::LinearTransformation(aHidden, ::nModelDim)
+
+RETURN aOutput
 
 METHOD LayerNorm(aInput) CLASS Transformer
    // Implementación simplificada de normalización de capa
