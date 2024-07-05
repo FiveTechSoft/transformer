@@ -11,6 +11,7 @@ CLASS Transformer
       METHOD Forward(aInput)
       METHOD MultiHeadAttention(aQuery, aKey, aValue)
       METHOD DotProductAttention(aQuery, aKey, aValue)
+      METHOD LinearProjection(aInput, nOutputDim)
       METHOD FeedForward(aInput)
       METHOD LayerNorm(aInput)
       
@@ -75,6 +76,22 @@ METHOD DotProductAttention(aQuery, aKey, aValue) CLASS Transformer
 
    // Calcular el output final
    aOutput := ::MatMul(aSoftMaxScores, aValue)
+
+RETURN aOutput
+
+METHOD LinearProjection(aInput, nOutputDim) CLASS Transformer
+   LOCAL aOutput := {}
+   LOCAL aWeights := {}
+   LOCAL i, j
+
+   // Inicializar pesos aleatorios (en una implementación real, estos serían parámetros entrenables)
+   FOR i := 1 TO Len(aInput[1])
+      AAdd(aWeights, Array(nOutputDim))
+      AEval(aWeights[i], {|x| HB_RANDOM() / HB_RANDOM(1) })
+   NEXT
+
+   // Realizar la proyección lineal
+   aOutput := ::MatMul(aInput, aWeights)
 
 RETURN aOutput
 
