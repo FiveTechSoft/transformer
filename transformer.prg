@@ -113,6 +113,196 @@ METHOD Forward(aInput) CLASS Transformer
    NEXT
 RETURN aEncoded
 
+METHOD Backward(aOutputGradient, nLearningRate) CLASS Transformer
+   LOCAL aGradient, i
+   
+   ::aGradients := {}
+   
+   // Assuming we have 6 encoder layers
+   aGradient := aOutputGradient
+   FOR i := 6 TO 1 STEP -1
+      aGradient := ::BackwardEncode(aGradient)
+   NEXT
+   
+   ::UpdateParameters(nLearningRate)
+   
+RETURN NIL
+
+METHOD BackwardEncode(aGradient) CLASS Transformer
+   LOCAL aFeedForwardGradient, aAttentionGradient
+   
+   // Backward pass through Feed Forward
+   aFeedForwardGradient := ::BackwardLayerNorm(aGradient, NIL)  // We don't need the input for this implementation of LayerNorm
+   aFeedForwardGradient := ::BackwardFeedForward(aFeedForwardGradient, NIL)  // We would need to store the input in the forward pass to use it here
+   
+   // Add residual connection
+   aGradient := ::ElementWiseAddition(aGradient, aFeedForwardGradient)
+   
+   // Backward pass through Multi-Head Attention
+   aAttentionGradient := ::BackwardLayerNorm(aGradient, NIL)
+   aAttentionGradient := ::BackwardMultiHeadAttention(aAttentionGradient, NIL, NIL, NIL)  // We would need to store Q, K, V in the forward pass
+   
+   // Add residual connection and positional encoding gradient
+   aGradient := ::ElementWiseAddition(aGradient, aAttentionGradient)
+   // Note: We're not computing gradients for positional encodings as they're typically fixed
+   
+RETURN aGradient
+
+METHOD BackwardMultiHeadAttention(aInputGradient, aQuery, aKey, aValue) CLASS Transformer
+   LOCAL nHeadDim := ::nModelDim / ::nHeads
+   LOCAL aHeadGradients := {}
+   LOCAL i, aQGrad, aKGrad, aVGrad, aConcatenatedGrad, aProjectedGrad
+   
+   // Backward pass through output projection
+   aProjectedGrad := ::BackwardLinearProjection(aInputGradient, NIL, "output")
+   
+   // Split gradient for each head
+   aConcatenatedGrad := ::SplitHeads(aProjectedGrad)
+   
+   FOR i := 1 TO ::nHeads
+      // Backward pass through dot-product attention
+      aQGrad := ::BackwardDotProductAttention(aConcatenatedGrad[i], aQuery, aKey, aValue)
+      aKGrad := ::BackwardDotProductAttention(aConcatenatedGrad[i], aQuery, aKey, aValue)
+      aVGrad := ::BackwardDotProductAttention(aConcatenatedGrad[i], aQuery, aKey, aValue)
+      
+      // Backward pass through linear projections
+      AAdd(aHeadGradients, ::BackwardLinearProjection(aQGrad, aQuery, "attention_q" + AllTrim(Str(i))))
+      AAdd(aHeadGradients, ::BackwardLinearProjection(aKGrad, aKey, "attention_k" + AllTrim(Str(i))))
+      AAdd(aHeadGradients, ::BackwardLinearProjection(aVGrad, aValue, "attention_v" + AllTrim(Str(i))))
+   NEXT
+   
+RETURN ::SumGradients(aHeadGradients)
+
+METHOD BackwardDotProductAttention(aGradient, aQuery, aKey, aValue) CLASS Transformer
+   LOCAL aScoresGrad, aSoftmaxGrad, aQGrad, aKGrad, aVGrad
+   LOCAL nDimK := Len(aKey[1])
+   
+   // Gradient of V
+   aVGrad := ::MatMul(::Transpose(::SoftMax(::MatMul(aQuery, ::Transpose(aKey)))), aGradient)
+   
+   // Gradient of Softmax
+   aSoftmaxGrad := ::BackwardSoftMax(aGradient, ::SoftMax(::MatMul(aQuery, ::Transpose(aKey))))
+   
+   // Gradient of scaling
+   aScoresGrad := ::ElementWiseMultiplication(aSoftmaxGrad, Array(Len(aSoftmaxGrad), {|| Array(Len(aSoftmaxGrad[1]), {|| 1 / Sqrt(nDimK) })}))
+   
+   // Gradient of Q and K
+   aQGrad := ::MatMul(aScoresGrad, aKey)
+   aKGrad := ::MatMul(::Transpose(aScoresGrad), aQuery)
+   
+RETURN {aQGrad, aKGrad, aVGrad}
+
+METHOD BackwardFeedForward(aInputGradient, aInput) CLASS Transformer
+   LOCAL aHiddenGradient
+   
+   // Backward pass through second linear projection
+   aHiddenGradient := ::BackwardLinearProjection(aInputGradient, NIL, "feedforward2")
+   
+   // Backward pass through ReLU
+   aHiddenGradient := ::BackwardReLU(aHiddenGradient, NIL)  // We would need to store the input to ReLU in the forward pass
+   
+   // Backward pass through first linear projection
+RETURN ::BackwardLinearProjection(aHiddenGradient, aInput, "feedforward1")
+
+METHOD BackwardLayerNorm(aInputGradient, aInput) CLASS Transformer
+   LOCAL aGammaGrad, aBetaGrad, aInputGrad
+   LOCAL i, j, nMean, nVar
+   
+   aGammaGrad := Array(::nModelDim)
+   aBetaGrad := Array(::nModelDim)
+   aInputGrad := Array(Len(aInput))
+   
+   FOR i := 1 TO Len(aInput)
+      nMean := ::Mean(aInput[i])
+      nVar := ::Variance(aInput[i], nMean)
+      aInputGrad[i] := Array(::nModelDim)
+      
+      FOR j := 1 TO ::nModelDim
+         aGammaGrad[j] += aInputGradient[i][j] * (aInput[i][j] - nMean) / Sqrt(nVar + 1e-6)
+         aBetaGrad[j] += aInputGradient[i][j]
+         
+         aInputGrad[i][j] := aInputGradient[i][j] * ::aGamma[j] / Sqrt(nVar + 1e-6)
+      NEXT
+   NEXT
+   
+   // Store gradients for gamma and beta
+   AAdd(::aGradients, {"gamma", aGammaGrad})
+   AAdd(::aGradients, {"beta", aBetaGrad})
+   
+RETURN aInputGrad
+
+METHOD BackwardLinearProjection(aInputGradient, aInput, cType) CLASS Transformer
+   LOCAL aWeightGrad, aBiasGrad, aInputGrad
+   LOCAL i, j, nWeightIndex, nBiasIndex
+   
+   // Get predefined weights and biases
+   nWeightIndex := AScan(::aWeights, {|a| Len(a[1]) == Len(aInputGradient[1])})
+   nBiasIndex := AScan(::aBiases, {|a| Len(a) == Len(aInputGradient[1])})
+   
+   IF nWeightIndex == 0 .OR. nBiasIndex == 0
+      // Handle error: weights or biases not found
+      RETURN NIL
+   ENDIF
+   
+   aWeightGrad := Array(Len(::aWeights[nWeightIndex]))
+   aBiasGrad := Array(Len(::aBiases[nBiasIndex]))
+   aInputGrad := Array(Len(aInput))
+   
+   // Compute gradients
+   FOR i := 1 TO Len(aInput)
+      aInputGrad[i] := Array(Len(aInput[i]))
+      FOR j := 1 TO Len(aInputGradient[1])
+         // Gradient for bias
+         aBiasGrad[j] += aInputGradient[i][j]
+         
+         // Gradient for weights
+         aWeightGrad[i][j] := aInput[i] * aInputGradient[i][j]
+         
+         // Gradient for input
+         aInputGrad[i] := ::MatMul({aInputGradient[i]}, ::Transpose(::aWeights[nWeightIndex]))[1]
+      NEXT
+   NEXT
+   
+   // Store gradients
+   AAdd(::aGradients, {cType + "_weight", aWeightGrad})
+   AAdd(::aGradients, {cType + "_bias", aBiasGrad})
+   
+RETURN aInputGrad
+
+METHOD BackwardReLU(aInputGradient, aInput) CLASS Transformer
+   LOCAL aOutputGradient := Array(Len(aInput))
+   LOCAL i, j
+   
+   FOR i := 1 TO Len(aInput)
+      aOutputGradient[i] := Array(Len(aInput[i]))
+      FOR j := 1 TO Len(aInput[i])
+         IF aInput[i][j] > 0
+            aOutputGradient[i][j] := aInputGradient[i][j]
+         ELSE
+            aOutputGradient[i][j] := 0
+         ENDIF
+      NEXT
+   NEXT
+   
+RETURN aOutputGradient
+
+METHOD BackwardSoftMax(aInputGradient, aInput) CLASS Transformer
+   LOCAL aOutputGradient := Array(Len(aInput))
+   LOCAL i, j, nSum
+   
+   FOR i := 1 TO Len(aInput)
+      aOutputGradient[i] := Array(Len(aInput[i]))
+      nSum := 0
+      FOR j := 1 TO Len(aInput[i])
+         nSum += aInput[i][j] * aInputGradient[i][j]
+      NEXT
+      FOR j := 1 TO Len(aInput[i])
+         aOutputGradient[i][j] := aInput[i][j] * (aInputGradient[i][j] - nSum)
+      NEXT
+   NEXT
+   
+RETURN aOutputGradient
+
 METHOD Encode(aInput) CLASS Transformer
    LOCAL aPositionalInput, aAttOutput, aFeedForwardOutput
    
@@ -372,6 +562,67 @@ METHOD SoftMax(aVector) CLASS Transformer
    AEval(aResult, {|x, i| aResult[i] := x / nSum })
 
 RETURN aResult
+
+METHOD UpdateParameters(nLearningRate) CLASS Transformer
+   LOCAL cKey, aGradient
+   
+   FOR EACH cKey, aGradient IN ::aGradients
+      IF "weight" $ cKey
+         ::UpdateWeights(cKey, aGradient, nLearningRate)
+      ELSEIF "bias" $ cKey
+         ::UpdateBiases(cKey, aGradient, nLearningRate)
+      ELSEIF cKey == "gamma"
+         ::UpdateGamma(aGradient, nLearningRate)
+      ELSEIF cKey == "beta"
+         ::UpdateBeta(aGradient, nLearningRate)
+      ENDIF
+   NEXT
+   
+RETURN NIL
+
+METHOD UpdateWeights(cKey, aGradient, nLearningRate) CLASS Transformer
+   LOCAL nIndex := AScan(::aWeights, {|a| Len(a) == Len(aGradient) .AND. Len(a[1]) == Len(aGradient[1])})
+   LOCAL i, j
+   
+   IF nIndex > 0
+      FOR i := 1 TO Len(::aWeights[nIndex])
+         FOR j := 1 TO Len(::aWeights[nIndex][i])
+            ::aWeights[nIndex][i][j] -= nLearningRate * aGradient[i][j]
+         NEXT
+      NEXT
+   ENDIF
+   
+RETURN NIL
+
+METHOD UpdateBiases(cKey, aGradient, nLearningRate) CLASS Transformer
+   LOCAL nIndex := AScan(::aBiases, {|a| Len(a) == Len(aGradient)})
+   LOCAL i
+   
+   IF nIndex > 0
+      FOR i := 1 TO Len(::aBiases[nIndex])
+         ::aBiases[nIndex][i] -= nLearningRate * aGradient[i]
+      NEXT
+   ENDIF
+   
+RETURN NIL
+
+METHOD UpdateGamma(aGradient, nLearningRate) CLASS Transformer
+   LOCAL i
+   
+   FOR i := 1 TO Len(::aGamma)
+      ::aGamma[i] -= nLearningRate * aGradient[i]
+   NEXT
+   
+RETURN NIL
+
+METHOD UpdateBeta(aGradient, nLearningRate) CLASS Transformer
+   LOCAL i
+   
+   FOR i := 1 TO Len(::aBeta)
+      ::aBeta[i] -= nLearningRate * aGradient[i]
+   NEXT
+   
+RETURN NIL
 
 METHOD FeedForward(aInput) CLASS Transformer
    LOCAL aHidden, aOutput
