@@ -3,7 +3,7 @@ PROCEDURE Main()
    local oTransformer, aInput, aOutput
    
    // Inicializar el Transformer
-   oTransformer := Transformer():New( 4, 64, 64, 64 )
+   oTransformer := Transformer():New( 8, 512, 2048, 100 )
    
    // Crear un input de ejemplo (en una implementación real, esto sería una secuencia de tokens)
    aInput := GenerateRandomMatrix( 10, 512 )

@@ -26,8 +26,11 @@ CLASS Transformer
       METHOD UpdateParameters(nLearningRate)
       
    PROTECTED:
+      METHOD ConcatenateHeads(aHeadOutputs)
       METHOD DotProductAttention(aQuery, aKey, aValue)
       METHOD LinearProjection(aInput, nOutputDim, cType)
+      METHOD LinearTransformation(aInput, nOutputDim)   
+      METHOD MatAdd( aMatrix1, aMatrix2 )   
       METHOD MatMul(aMatrix1, aMatrix2)
       METHOD Transpose(aMatrix)
       METHOD SoftMax(aVector)
@@ -72,13 +75,13 @@ METHOD InitializeParameters() CLASS Transformer
 
    // Weights and bias for output projection
    AAdd(::aWeights, ::GenerateWeights(::nModelDim, ::nModelDim, "output"))
-   AAdd(::aBiases, Array(::nModelDim))
+   AAdd(::aBiases, GenerateRandomVector(::nModelDim))
 
    // Weights and biases for feed-forward layers
    AAdd(::aWeights, ::GenerateWeights(::nModelDim, ::nFeedForwardDim, "feedforward1"))
-   AAdd(::aBiases, Array(::nFeedForwardDim))
+   AAdd(::aBiases, GenerateRandomVector(::nFeedForwardDim))
    AAdd(::aWeights, ::GenerateWeights(::nFeedForwardDim, ::nModelDim, "feedforward2"))
-   AAdd(::aBiases, Array(::nModelDim))
+   AAdd(::aBiases, GenerateRandomVector(::nModelDim))
 
    // Initialize gamma and beta for layer normalization
    ::aGamma := Array(::nModelDim)
@@ -350,13 +353,14 @@ RETURN NIL
 
 METHOD Forward(aInput) CLASS Transformer
    LOCAL aAttOutput, aFeedForwardOutput
-   
+
    aAttOutput := ::MultiHeadAttention(aInput, aInput, aInput)
-   aAttOutput := ::LayerNorm(aInput + aAttOutput)
-   
+   aAttOutput := ::LayerNorm(::MatAdd(aInput, aAttOutput))
+
    aFeedForwardOutput := ::FeedForward(aAttOutput)
-   aFeedForwardOutput := ::LayerNorm(aAttOutput + aFeedForwardOutput)
-RETURN aFeedForwardOutput
+   aFeedForwardOutput := ::LayerNorm(::MatAdd(aAttOutput, aFeedForwardOutput))
+
+   RETURN aFeedForwardOutput
 
 METHOD MultiHeadAttention(aQuery, aKey, aValue) CLASS Transformer
    LOCAL nHeadDim := ::nModelDim / ::nHeads
@@ -413,7 +417,6 @@ METHOD DotProductAttention(aQuery, aKey, aValue) CLASS Transformer
 RETURN aOutput
 
 METHOD LinearProjection(aInput, nOutputDim, cType) CLASS Transformer
-   
    LOCAL aOutput := {}
    LOCAL i, j, nWeightIndex, nBiasIndex
 
@@ -422,18 +425,21 @@ METHOD LinearProjection(aInput, nOutputDim, cType) CLASS Transformer
    nBiasIndex := AScan(::aBiases, {|a| Len(a) == nOutputDim})
 
    IF nWeightIndex == 0 .OR. nBiasIndex == 0
-      // Handle error: weights or biases not found
-      RETURN NIL
+       // Handle error: weights or biases not found
+       RETURN NIL
    ENDIF
 
-   FOR i := 1 TO Len(aInput)
-      AAdd(aOutput, Array(nOutputDim))
-      FOR j := 1 TO nOutputDim
-         aOutput[i][j] := ::MatMul({aInput[i]}, ::aWeights[nWeightIndex])[1][j] + ::aBiases[nBiasIndex][j]
-      NEXT
+   // Perform matrix multiplication for the entire input
+   aOutput := ::MatMul(aInput, ::aWeights[nWeightIndex])
+
+   // Add biases
+   FOR i := 1 TO Len(aOutput)
+       FOR j := 1 TO nOutputDim
+           aOutput[i][j] += ::aBiases[nBiasIndex][j]
+       NEXT
    NEXT
 
-RETURN aOutput
+   RETURN aOutput
 
 METHOD SoftMax(aVector) CLASS Transformer
    LOCAL nSum := 0
@@ -536,6 +542,29 @@ METHOD LinearTransformation(aInput, nOutputDim) CLASS Transformer
    NEXT
 
 RETURN aOutput
+
+METHOD MatAdd( aMatrix1, aMatrix2 ) CLASS Transformer
+   LOCAL aResult := {}
+   LOCAL i, j, nRows, nCols
+
+   // Verificar que las matrices tienen las mismas dimensiones
+   IF Len(aMatrix1) != Len(aMatrix2) .OR. Len(aMatrix1[1]) != Len(aMatrix2[1])
+       ? "Error: Las matrices deben tener las mismas dimensiones para la suma"
+       RETURN NIL
+   ENDIF
+
+   nRows := Len(aMatrix1)
+   nCols := Len(aMatrix1[1])
+
+   // Realizar la suma elemento por elemento
+   FOR i := 1 TO nRows
+       AAdd(aResult, Array(nCols))
+       FOR j := 1 TO nCols
+           aResult[i][j] := aMatrix1[i][j] + aMatrix2[i][j]
+       NEXT
+   NEXT
+
+RETURN aResult
 
 METHOD MatMul( aMatrix1, aMatrix2 ) CLASS Transformer
 
