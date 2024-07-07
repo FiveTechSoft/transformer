@@ -32,6 +32,7 @@ CLASS Transformer
       METHOD Transpose(aMatrix)
       METHOD SoftMax(aVector)
       METHOD SplitHeads(aInput)
+      METHOD SumGradients(aGradients)
       METHOD ReLU(aInput)
       METHOD Mean(aVector)
       METHOD Variance(aVector, nMean)
@@ -507,6 +508,39 @@ METHOD SplitHeads(aInput) CLASS Transformer
    NEXT
    
 RETURN aSplit
+
+METHOD SumGradients(aGradients) CLASS Transformer
+   LOCAL aSumGradient
+   LOCAL i, j, k
+   
+   // Initialize aSumGradient with the same structure as the first gradient in aGradients
+   aSumGradient := AClone(aGradients[1])
+   
+   // Initialize all elements of aSumGradient to zero
+   FOR i := 1 TO Len(aSumGradient)
+      IF HB_ISARRAY(aSumGradient[i])
+         FOR j := 1 TO Len(aSumGradient[i])
+            aSumGradient[i][j] := 0
+         NEXT
+      ELSE
+         aSumGradient[i] := 0
+      ENDIF
+   NEXT
+   
+   // Sum up all gradients
+   FOR i := 1 TO Len(aGradients)
+      FOR j := 1 TO Len(aGradients[i])
+         IF HB_ISARRAY(aGradients[i][j])
+            FOR k := 1 TO Len(aGradients[i][j])
+               aSumGradient[j][k] += aGradients[i][j][k]
+            NEXT
+         ELSE
+            aSumGradient[j] += aGradients[i][j]
+         ENDIF
+      NEXT
+   NEXT
+   
+RETURN aSumGradient
 
 METHOD LinearTransformation(aInput, nOutputDim) CLASS Transformer
    LOCAL aOutput := {}
