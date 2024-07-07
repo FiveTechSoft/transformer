@@ -1,12 +1,18 @@
 #include "hbclass.ch"
 
+#include "hbclass.ch"
+
 CLASS Transformer
    PROTECTED:
-      VAR nHeads
-      VAR nModelDim
-      VAR nFeedForwardDim
-      VAR nMaxSeqLength
-      VAR aPositionalEncoding
+      DATA nHeads
+      DATA nModelDim
+      DATA nFeedForwardDim
+      DATA nMaxSeqLength
+      DATA aPositionalEncoding
+      DATA aWeights
+      DATA aBiases
+      DATA aGamma
+      DATA aBeta
       
    EXPORTED:
       METHOD New(nHeads, nModelDim, nFeedForwardDim, nMaxSeqLength)
@@ -20,7 +26,7 @@ CLASS Transformer
       
    PROTECTED:
       METHOD DotProductAttention(aQuery, aKey, aValue)
-      METHOD LinearProjection(aInput, nOutputDim)
+      METHOD LinearProjection(aInput, nOutputDim, cType)
       METHOD MatMul(aMatrix1, aMatrix2)
       METHOD Transpose(aMatrix)
       METHOD SoftMax(aVector)
@@ -30,6 +36,8 @@ CLASS Transformer
       METHOD ElementWiseAddition(aMatrix1, aMatrix2)
       METHOD ElementWiseMultiplication(aMatrix1, aMatrix2)
       METHOD GeneratePositionalEncoding()
+      METHOD InitializeParameters()
+      METHOD GenerateWeights(nInputDim, nOutputDim, cType)
 
 ENDCLASS
 
@@ -39,14 +47,62 @@ METHOD New(nHeads, nModelDim, nFeedForwardDim, nMaxSeqLength) CLASS Transformer
    ::nFeedForwardDim := nFeedForwardDim
    ::nMaxSeqLength := nMaxSeqLength
    ::GeneratePositionalEncoding()
+   ::InitializeParameters()
 RETURN Self
 
+METHOD InitializeParameters() CLASS Transformer
+   LOCAL i
+   ::aWeights := {}
+   ::aBiases := {}
+
+   // Weights and biases for Q, K, V projections
+   FOR i := 1 TO ::nHeads
+      AAdd(::aWeights, ::GenerateWeights(::nModelDim, ::nModelDim / ::nHeads, "attention"))
+      AAdd(::aBiases, Array(::nModelDim / ::nHeads))
+   NEXT
+
+   // Weights and bias for output projection
+   AAdd(::aWeights, ::GenerateWeights(::nModelDim, ::nModelDim, "output"))
+   AAdd(::aBiases, Array(::nModelDim))
+
+   // Weights and biases for feed-forward layers
+   AAdd(::aWeights, ::GenerateWeights(::nModelDim, ::nFeedForwardDim, "feedforward1"))
+   AAdd(::aBiases, Array(::nFeedForwardDim))
+   AAdd(::aWeights, ::GenerateWeights(::nFeedForwardDim, ::nModelDim, "feedforward2"))
+   AAdd(::aBiases, Array(::nModelDim))
+
+   // Initialize gamma and beta for layer normalization
+   ::aGamma := Array(::nModelDim)
+   ::aBeta := Array(::nModelDim)
+   AEval(::aGamma, {|x| x := 1})
+   AEval(::aBeta, {|x| x := 0})
+RETURN NIL
+
+METHOD GenerateWeights(nInputDim, nOutputDim, cType) CLASS Transformer
+   LOCAL aWeights := Array(nInputDim)
+   LOCAL i, j, nStdDev
+
+   // Xavier/Glorot initialization
+   nStdDev := Sqrt(2 / (nInputDim + nOutputDim))
+
+   FOR i := 1 TO nInputDim
+      aWeights[i] := Array(nOutputDim)
+      FOR j := 1 TO nOutputDim
+         aWeights[i][j] := (HB_RANDOM() * 2 - 1) * nStdDev
+      NEXT
+   NEXT
+
+RETURN aWeights
+
 METHOD Forward(aInput) CLASS Transformer
-   LOCAL aEncodedInput, aOutput
+   LOCAL aEncoded
+   LOCAL i
    
-   aEncodedInput := ::Encode(aInput)
-   aOutput := ::Decode(aInput, aEncodedInput)
-RETURN aOutput
+   aEncoded := aInput
+   FOR i := 1 TO 6  // Example with 6 layers
+      aEncoded := ::Encode(aEncoded)
+   NEXT
+RETURN aEncoded
 
 METHOD Encode(aInput) CLASS Transformer
    LOCAL aPositionalInput, aAttOutput, aFeedForwardOutput
@@ -75,13 +131,14 @@ RETURN aFeedForwardOutput
 
 METHOD PositionalEncoding(aInput) CLASS Transformer
    LOCAL aOutput := AClone(aInput)
-   LOCAL i, j
+   LOCAL i, j, nSeqLen := Len(aInput)
    
-   FOR i := 1 TO Len(aInput)
-      FOR j := 1 TO Len(aInput[i])
+   FOR i := 1 TO nSeqLen
+      FOR j := 1 TO ::nModelDim
          aOutput[i][j] += ::aPositionalEncoding[i][j]
       NEXT
    NEXT
+
 RETURN aOutput
 
 METHOD GeneratePositionalEncoding() CLASS Transformer
@@ -117,60 +174,122 @@ METHOD MultiHeadAttention(aQuery, aKey, aValue) CLASS Transformer
    LOCAL aHeadOutputs := {}
    LOCAL i, aQ, aK, aV, aHeadOutput, aConcatenated, aProjected
 
-   // Dividir en cabezas
    FOR i := 1 TO ::nHeads
-      aQ := ::LinearProjection(aQuery, nHeadDim)
-      aK := ::LinearProjection(aKey, nHeadDim)
-      aV := ::LinearProjection(aValue, nHeadDim)
+      aQ := ::LinearProjection(aQuery, nHeadDim, "attention_q" + AllTrim(Str(i)))
+      aK := ::LinearProjection(aKey, nHeadDim, "attention_k" + AllTrim(Str(i)))
+      aV := ::LinearProjection(aValue, nHeadDim, "attention_v" + AllTrim(Str(i)))
       
-      // Calcular la atención para esta cabeza
       aHeadOutput := ::DotProductAttention(aQ, aK, aV)
       AAdd(aHeadOutputs, aHeadOutput)
    NEXT
 
-   // Concatenar las salidas de todas las cabezas
-   aConcatenated := {}
-   FOR i := 1 TO Len(aHeadOutputs[1])
-      AAdd(aConcatenated, ASize(Array(0), ::nModelDim))
-      AFill(aConcatenated[i], 0)
-      AEval(aHeadOutputs, {|a, j| AEval(a[i], {|x, k| aConcatenated[i][k + (j-1)*nHeadDim] += x })})
-   NEXT
-
-   // Proyección lineal final
-   aProjected := ::LinearProjection(aConcatenated, ::nModelDim)
+   aConcatenated := ::ConcatenateHeads(aHeadOutputs)
+   aProjected := ::LinearProjection(aConcatenated, ::nModelDim, "output")
 
 RETURN aProjected
+
+METHOD ConcatenateHeads(aHeadOutputs) CLASS Transformer
+   LOCAL aConcatenated := {}
+   LOCAL i, j, k, nHeadDim := ::nModelDim / ::nHeads
+
+   FOR i := 1 TO Len(aHeadOutputs[1])
+      AAdd(aConcatenated, Array(::nModelDim))
+      FOR j := 1 TO Len(aHeadOutputs)
+         FOR k := 1 TO nHeadDim
+            aConcatenated[i][(j - 1) * nHeadDim + k] := aHeadOutputs[j][i][k]
+         NEXT
+      NEXT
+   NEXT
+
+RETURN aConcatenated
 
 METHOD DotProductAttention(aQuery, aKey, aValue) CLASS Transformer
    LOCAL aScores, aSoftMaxScores, aOutput
    LOCAL nDimK := Len(aKey[1])
+   LOCAL i, j
 
-   // Calcular puntuaciones de atención
    aScores := ::MatMul(aQuery, ::Transpose(aKey))
-   AEval(aScores, {|a| AEval(a, {|x, i| a[i] := x / Sqrt(nDimK) })})
+   
+   FOR i := 1 TO Len(aScores)
+      FOR j := 1 TO Len(aScores[i])
+         aScores[i][j] := aScores[i][j] / Sqrt(nDimK)
+      NEXT
+   NEXT
 
-   // Aplicar softmax
    aSoftMaxScores := {}
    AEval(aScores, {|a| AAdd(aSoftMaxScores, ::SoftMax(a))})
 
-   // Calcular el output final
    aOutput := ::MatMul(aSoftMaxScores, aValue)
 
 RETURN aOutput
 
-METHOD LinearProjection(aInput, nOutputDim) CLASS Transformer
+METHOD LinearProjection(aInput, nOutputDim, cType) CLASS Transformer
    LOCAL aOutput := {}
-   LOCAL aWeights := {}
-   LOCAL i, j
+   LOCAL i, j, nWeightIndex, nBiasIndex
 
-   // Inicializar pesos aleatorios (en una implementación real, estos serían parámetros entrenables)
-   FOR i := 1 TO Len(aInput[1])
-      AAdd(aWeights, Array(nOutputDim))
-      AEval(aWeights[i], {|x| HB_RANDOM() / HB_RANDOM(1) })
+   // Get predefined weights and biases
+   nWeightIndex := AScan(::aWeights, {|a| Len(a[1]) == nOutputDim})
+   nBiasIndex := AScan(::aBiases, {|a| Len(a) == nOutputDim})
+
+   IF nWeightIndex == 0 .OR. nBiasIndex == 0
+      // Handle error: weights or biases not found
+      RETURN NIL
+   ENDIF
+
+   FOR i := 1 TO Len(aInput)
+      AAdd(aOutput, Array(nOutputDim))
+      FOR j := 1 TO nOutputDim
+         aOutput[i][j] := ::MatMul({aInput[i]}, ::aWeights[nWeightIndex])[1][j] + ::aBiases[nBiasIndex][j]
+      NEXT
    NEXT
 
-   // Realizar la proyección lineal
-   aOutput := ::MatMul(aInput, aWeights)
+RETURN aOutput
+
+METHOD LayerNorm(aInput) CLASS Transformer
+   LOCAL nMean, nVar, aNorm
+   LOCAL i, j
+
+   aNorm := Array(Len(aInput))
+   FOR i := 1 TO Len(aInput)
+      nMean := ::Mean(aInput[i])
+      nVar := ::Variance(aInput[i], nMean)
+      aNorm[i] := Array(Len(aInput[i]))
+      FOR j := 1 TO Len(aInput[i])
+         aNorm[i][j] := ((aInput[i][j] - nMean) / Sqrt(nVar + 1e-6)) * ::aGamma[j] + ::aBeta[j]
+      NEXT
+   NEXT
+
+RETURN aNorm
+
+METHOD FeedForward(aInput) CLASS Transformer
+   LOCAL aHidden, aOutput
+   
+   aHidden := ::ReLU(::LinearProjection(aInput, ::nFeedForwardDim, "feedforward1"))
+   aOutput := ::LinearProjection(aHidden, ::nModelDim, "feedforward2")
+
+RETURN aOutput
+
+METHOD SoftMax(aVector) CLASS Transformer
+   LOCAL nSum := 0
+   LOCAL aOutput := Array(Len(aVector))
+   LOCAL nMax, i
+   
+   // Find max for numerical stability
+   nMax := aVector[1]
+   FOR i := 2 TO Len(aVector)
+      IF aVector[i] > nMax
+         nMax := aVector[i]
+      ENDIF
+   NEXT
+   
+   // Calculate exponential and sum
+   FOR i := 1 TO Len(aVector)
+      aOutput[i] := Exp(aVector[i] - nMax)
+      nSum += aOutput[i]
+   NEXT
+   
+   // Normalize
+   AEval(aOutput, {|x, i| aOutput[i] := x / nSum})
 
 RETURN aOutput
 
