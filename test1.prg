@@ -1,10 +1,11 @@
 PROCEDURE Main()
+   
    LOCAL oTransformer
    LOCAL aInput
    LOCAL aOutput
    
    // Inicializar el Transformer
-   oTransformer := Transformer():New(8, 512, 2048)
+   oTransformer := Transformer():New( 8, 512, 2048, 128 )
    
    // Crear un input de ejemplo (en una implementación real, esto sería una secuencia de tokens)
    aInput := Array(10, 512)
