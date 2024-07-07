@@ -103,16 +103,6 @@ METHOD GenerateWeights(nInputDim, nOutputDim, cType) CLASS Transformer
 
 RETURN aWeights
 
-METHOD Forward(aInput) CLASS Transformer
-   LOCAL aEncoded
-   LOCAL i
-   
-   aEncoded := aInput
-   FOR i := 1 TO 6  // Example with 6 layers
-      aEncoded := ::Encode(aEncoded)
-   NEXT
-RETURN aEncoded
-
 METHOD Backward(aOutputGradient, nLearningRate) CLASS Transformer
    LOCAL aGradient, i
    
@@ -218,10 +208,10 @@ METHOD BackwardLayerNorm(aInputGradient, aInput) CLASS Transformer
       aInputGrad[i] := Array(::nModelDim)
       
       FOR j := 1 TO ::nModelDim
-         aGammaGrad[j] += aInputGradient[i][j] * (aInput[i][j] - nMean) / Sqrt(nVar + 1e-6)
+         aGammaGrad[j] += aInputGradient[i][j] * (aInput[i][j] - nMean) / Sqrt(nVar + (1 * 10^-6) ) // 1e-6
          aBetaGrad[j] += aInputGradient[i][j]
          
-         aInputGrad[i][j] := aInputGradient[i][j] * ::aGamma[j] / Sqrt(nVar + 1e-6)
+         aInputGrad[i][j] := aInputGradient[i][j] * ::aGamma[j] / Sqrt(nVar + (1 * 10^-6) ) // 1e-6
       NEXT
    NEXT
    
@@ -444,30 +434,6 @@ METHOD LinearProjection(aInput, nOutputDim, cType) CLASS Transformer
 
 RETURN aOutput
 
-METHOD LayerNorm(aInput) CLASS Transformer
-   LOCAL nMean, nVar, aNorm
-   LOCAL i, j
-
-   aNorm := Array(Len(aInput))
-   FOR i := 1 TO Len(aInput)
-      nMean := ::Mean(aInput[i])
-      nVar := ::Variance(aInput[i], nMean)
-      aNorm[i] := Array(Len(aInput[i]))
-      FOR j := 1 TO Len(aInput[i])
-         aNorm[i][j] := ((aInput[i][j] - nMean) / Sqrt(nVar + 1e-6)) * ::aGamma[j] + ::aBeta[j]
-      NEXT
-   NEXT
-
-RETURN aNorm
-
-METHOD FeedForward(aInput) CLASS Transformer
-   LOCAL aHidden, aOutput
-   
-   aHidden := ::ReLU(::LinearProjection(aInput, ::nFeedForwardDim, "feedforward1"))
-   aOutput := ::LinearProjection(aHidden, ::nModelDim, "feedforward2")
-
-RETURN aOutput
-
 METHOD SoftMax(aVector) CLASS Transformer
    LOCAL nSum := 0
    LOCAL aOutput := Array(Len(aVector))
@@ -600,34 +566,21 @@ METHOD Transpose(aMatrix) CLASS Transformer
 
 RETURN aResult
 
-METHOD SoftMax(aVector) CLASS Transformer
-   LOCAL aResult := AClone(aVector)
-   LOCAL nSum := 0
-   LOCAL i
-
-   // Aplicar exponencial y sumar
-   AEval(aResult, {|x, i| aResult[i] := Exp(x), nSum += aResult[i] })
-
-   // Normalizar
-   AEval(aResult, {|x, i| aResult[i] := x / nSum })
-
-RETURN aResult
-
 METHOD UpdateParameters(nLearningRate) CLASS Transformer
-   LOCAL cKey, aGradient
-   
-   FOR EACH cKey, aGradient IN ::aGradients
+   LOCAL cKey
+
+   FOR EACH cKey IN hb_HKeys(::aGradients)
       IF "weight" $ cKey
-         ::UpdateWeights(cKey, aGradient, nLearningRate)
+         ::UpdateWeights(cKey, ::aGradients[cKey], nLearningRate)
       ELSEIF "bias" $ cKey
-         ::UpdateBiases(cKey, aGradient, nLearningRate)
+         ::UpdateBiases(cKey, ::aGradients[cKey], nLearningRate)
       ELSEIF cKey == "gamma"
-         ::UpdateGamma(aGradient, nLearningRate)
+         ::UpdateGamma(::aGradients[cKey], nLearningRate)
       ELSEIF cKey == "beta"
-         ::UpdateBeta(aGradient, nLearningRate)
+         ::UpdateBeta(::aGradients[cKey], nLearningRate)
       ENDIF
    NEXT
-   
+
 RETURN NIL
 
 METHOD UpdateWeights(cKey, aGradient, nLearningRate) CLASS Transformer
@@ -692,7 +645,7 @@ METHOD LayerNorm(aInput) CLASS Transformer
    LOCAL aOutput := {}
    LOCAL aGamma := {}
    LOCAL aBeta := {}
-   LOCAL nMean, nVariance, nEpsilon := 1e-8
+   LOCAL nMean, nVariance, nEpsilon := ( 1 * 10^-8 ) // 1e-8
    LOCAL i, j, aTemp
 
    // Inicializar parámetros aprendibles gamma y beta
