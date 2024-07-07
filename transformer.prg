@@ -1,7 +1,5 @@
 #include "hbclass.ch"
 
-#include "hbclass.ch"
-
 CLASS Transformer
    PROTECTED:
       DATA nHeads
