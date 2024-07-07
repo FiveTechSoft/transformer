@@ -67,7 +67,7 @@ METHOD InitializeParameters() CLASS Transformer
    // Weights and biases for Q, K, V projections
    FOR i := 1 TO ::nHeads
       AAdd(::aWeights, ::GenerateWeights(::nModelDim, ::nModelDim / ::nHeads, "attention"))
-      AAdd(::aBiases, Array(::nModelDim / ::nHeads))
+      AAdd(::aBiases, GenerateRandomVector( ::nModelDim / ::nHeads ) )
    NEXT
 
    // Weights and bias for output projection
@@ -413,6 +413,7 @@ METHOD DotProductAttention(aQuery, aKey, aValue) CLASS Transformer
 RETURN aOutput
 
 METHOD LinearProjection(aInput, nOutputDim, cType) CLASS Transformer
+   
    LOCAL aOutput := {}
    LOCAL i, j, nWeightIndex, nBiasIndex
 
@@ -536,9 +537,15 @@ METHOD LinearTransformation(aInput, nOutputDim) CLASS Transformer
 
 RETURN aOutput
 
-METHOD MatMul(aMatrix1, aMatrix2) CLASS Transformer
+METHOD MatMul( aMatrix1, aMatrix2 ) CLASS Transformer
+
    LOCAL aResult := {}
    LOCAL i, j, k, nSum
+
+   if Len( aMatrix1[ 1 ] ) != Len( aMatrix2 )
+      ? "Matrices can't be multiplied", Len( aMatrix1[ 1 ] ), Len( aMatrix2 )
+      return nil
+   endif   
 
    FOR i := 1 TO Len(aMatrix1)
       AAdd(aResult, Array(Len(aMatrix2[1])))
@@ -723,4 +730,20 @@ METHOD ElementWiseMultiplication(aMatrix1, aMatrix2) CLASS Transformer
    NEXT
 
 RETURN aResult
+
+FUNCTION GenerateRandomMatrix(nRows, nCols)
+   LOCAL aMatrix := Array(nRows, nCols), i, j
+   FOR i := 1 TO nRows
+       FOR j := 1 TO nCols
+           aMatrix[i,j] := hb_Random(-1, 1)
+       NEXT    
+   NEXT
+RETURN aMatrix
+
+FUNCTION GenerateRandomVector(nSize)
+   LOCAL aVector := Array(nSize), i
+   FOR i := 1 TO nSize
+       aVector[i] := hb_Random(-1, 1)
+   NEXT
+RETURN aVector
 
