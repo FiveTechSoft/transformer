@@ -33,6 +33,7 @@ CLASS Transformer
       METHOD MatMul(aMatrix1, aMatrix2)
       METHOD Transpose(aMatrix)
       METHOD SoftMax(aVector)
+      METHOD SplitHeads(aInput)
       METHOD ReLU(aInput)
       METHOD Mean(aVector)
       METHOD Variance(aVector, nMean)
@@ -491,6 +492,23 @@ METHOD SoftMax(aVector) CLASS Transformer
    AEval(aOutput, {|x, i| aOutput[i] := x / nSum})
 
 RETURN aOutput
+
+METHOD SplitHeads(aInput) CLASS Transformer
+   LOCAL nHeadDim := ::nModelDim / ::nHeads
+   LOCAL aSplit := {}
+   LOCAL i, j, k
+   
+   FOR i := 1 TO ::nHeads
+      AAdd(aSplit, Array(Len(aInput)))
+      FOR j := 1 TO Len(aInput)
+         aSplit[i][j] := Array(nHeadDim)
+         FOR k := 1 TO nHeadDim
+            aSplit[i][j][k] := aInput[j][(i-1)*nHeadDim + k]
+         NEXT
+      NEXT
+   NEXT
+   
+RETURN aSplit
 
 METHOD LinearTransformation(aInput, nOutputDim) CLASS Transformer
    LOCAL aOutput := {}
