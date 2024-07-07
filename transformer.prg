@@ -13,6 +13,7 @@ CLASS Transformer
       DATA aBiases
       DATA aGamma
       DATA aBeta
+      DATA aGradients
       
    EXPORTED:
       METHOD New(nHeads, nModelDim, nFeedForwardDim, nMaxSeqLength)
@@ -23,6 +24,8 @@ CLASS Transformer
       METHOD PositionalEncoding(aInput)
       METHOD Encode(aInput)
       METHOD Decode(aInput, aEncoderOutput)
+      METHOD Backward(aOutputGradient, nLearningRate)
+      METHOD UpdateParameters(nLearningRate)
       
    PROTECTED:
       METHOD DotProductAttention(aQuery, aKey, aValue)
@@ -38,6 +41,12 @@ CLASS Transformer
       METHOD GeneratePositionalEncoding()
       METHOD InitializeParameters()
       METHOD GenerateWeights(nInputDim, nOutputDim, cType)
+      METHOD BackwardMultiHeadAttention(aInputGradient, aQuery, aKey, aValue)
+      METHOD BackwardFeedForward(aInputGradient, aInput)
+      METHOD BackwardLayerNorm(aInputGradient, aInput)
+      METHOD BackwardLinearProjection(aInputGradient, aInput, cType)
+      METHOD BackwardReLU(aInputGradient, aInput)
+      METHOD BackwardSoftMax(aInputGradient, aInput)
 
 ENDCLASS
 
