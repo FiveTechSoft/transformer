@@ -516,20 +516,10 @@ METHOD SumGradients(aGradients) CLASS Transformer
 RETURN aSumGradient
 
 METHOD LinearTransformation(aInput, nOutputDim) CLASS Transformer
-   LOCAL aOutput := {}
-   LOCAL aWeights := {}
-   LOCAL aBiases := {}
+   LOCAL aOutput
+   LOCAL aWeights := GenerateRandomMatrix( Len( aInput[ 1 ] ), nOutputDim )
+   LOCAL aBiases := GenerateRandomVector( nOutputDim )
    LOCAL i, j
-
-   // Inicializar pesos aleatorios (en una implementación real, estos serían parámetros entrenables)
-   FOR i := 1 TO Len(aInput[1])
-      AAdd(aWeights, Array(nOutputDim))
-      AEval(aWeights[i], {|x| HB_RANDOM() / HB_RANDOM(1) - 0.5 })
-   NEXT
-
-   // Inicializar biases
-   aBiases := Array(nOutputDim)
-   AEval(aBiases, {|x| HB_RANDOM() / HB_RANDOM(1) - 0.5 })
 
    // Realizar la transformación lineal: output = input * weights + biases
    aOutput := ::MatMul(aInput, aWeights)
