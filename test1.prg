@@ -1,31 +1,87 @@
-PROCEDURE Main()
+#include "hbclass.ch"
 
-   local oTransformer, aInput, aOutput
-   
-   // AltD( 1 )
-   // AltD()
+// Función principal
+FUNCTION Main()
+    LOCAL oTransformer
+    LOCAL aTrainingData := { ;
+        "el gato duerme en la cama por la noche en su", ;
+        "el perro juega en el parque", ;
+        "la niña lee un libro" ;
+    }
+    LOCAL aVocab := {}
+    LOCAL aTokenizedData := {}
+    LOCAL aOneHotData := {}
+    LOCAL i, j, aInput, aOutput, nEpochs := 100
+    LOCAL cTestPhrase := "el gato juega", cPhrase, cToken
+    LOCAL aTestTokens, aTestOneHot, aGenerated, aPhrase
+    
+    // Crear vocabulario
+    FOR EACH cPhrase IN aTrainingData
+      for each cToken in hb_ATokens( cPhrase, " " )
+         if AScan(aVocab, cToken) == 0 
+            AAdd(aVocab, cToken)
+         endif   
+      next  
+    NEXT
+    
+    // Tokenizar y convertir a one-hot
+    FOR EACH cPhrase IN aTrainingData
+        aTokenizedData := Tokenize(cPhrase)
+        AAdd(aOneHotData, TokensToOneHot(aTokenizedData, aVocab))
+    NEXT
+    
+    // Crear y entrenar el transformer
+    oTransformer := Transformer():New( 4, 16, 256, 10 )  // 4 heads, 12 model dim, 256 ff dim, max 10 tokens
+    
+    // Entrenamiento
+    FOR i := 1 TO nEpochs
+        FOR EACH aPhrase IN aOneHotData
+            // Usar los primeros n-1 tokens como entrada y el último como salida
+            aInput := AClone(aPhrase)
+            aOutput := ATail(aPhrase)
+            ADel(aInput, Len(aInput))
+            aSize(aInput, Len(aInput) - 1)
+            
+            // Forward pass
+            aGenerated := oTransformer:Forward( aInput )
+            
+            // Backward pass (asumimos que el último token es la salida deseada)
+            oTransformer:Backward({aOutput}, 0.01)  // Learning rate de 0.01
+        NEXT
+    NEXT
+    
+    // Prueba
+    aTestTokens := Tokenize(cTestPhrase)
+    aTestOneHot := TokensToOneHot(aTestTokens, aVocab)
+    
+    aGenerated := oTransformer:Forward(aTestOneHot)
+    
+    // Convertir la salida a token
+    // nMaxIndex := AScan(ATail(aGenerated), {|x| x == hb_Max(ATail(aGenerated))})
+    ? hb_ValToExp( aGenerated )
+    cGeneratedWord := aVocab[nMaxIndex]
+    
+    ? "Frase de prueba:", cTestPhrase
+    ? "Palabra generada:", cGeneratedWord
 
-   // Inicializar el Transformer
-   oTransformer := Transformer():New( 8, 64, 64, 100 )
+RETURN NIL
 
-   ? "==== 0 ===="
-   InKey( 0 )
+// Función auxiliar para tokenizar texto
+FUNCTION Tokenize(cText)
+RETURN hb_ATokens(Lower(cText), " ")
 
-   // Crear un input de ejemplo (en una implementación real, esto sería una secuencia de tokens)
-   aInput := GenerateRandomMatrix( 10, 64 )
+// Función auxiliar para convertir tokens a one-hot encoding
+FUNCTION TokensToOneHot(aTokens, aVocab)
+LOCAL aOneHot := {}
+LOCAL nVocabSize := Len(aVocab)
+LOCAL nIndex, cToken
 
-   ? "==== 1 ===="
-   InKey( 0 )
-   
-   // Procesar el input a través del Transformer
-   aOutput := oTransformer:Forward( aInput )
-   
-   ? "==== 2 ===="
-   InKey( 0 )
+FOR EACH cToken IN aTokens
+    nIndex := AScan(aVocab, cToken)
+    IF nIndex > 0
+        AAdd(aOneHot, AFill( Array(nVocabSize), 0 ) )
+        aOneHot[ Len( aOneHot ) ][ nIndex ] := 1
+    ENDIF
+NEXT
 
-   // Imprimir algunos resultados de ejemplo
-   ? "Dimensiones del output:", Len( aOutput ), "x", Len( aOutput[ 1 ] )
-   // ? "Primeros 5 valores del primer vector del output:"
-   // ? hb_ValToExp( aOutput )
-
-RETURN
+RETURN aOneHot

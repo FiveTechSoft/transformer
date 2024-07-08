@@ -12,7 +12,9 @@ CLASS Transformer
       DATA aGamma
       DATA aBeta
       DATA aGradients
-      
+      DATA aLastFeedForwardInput
+      DATA aLastAttentionInput
+   
    EXPORTED:
       METHOD New(nHeads, nModelDim, nFeedForwardDim, nMaxSeqLength)
       METHOD Forward(aInput)
@@ -24,13 +26,13 @@ CLASS Transformer
       METHOD Decode(aInput, aEncoderOutput)
       METHOD Backward(aOutputGradient, nLearningRate)
       METHOD UpdateParameters(nLearningRate)
-      
+   
    PROTECTED:
       METHOD ConcatenateHeads(aHeadOutputs)
       METHOD DotProductAttention(aQuery, aKey, aValue)
       METHOD LinearProjection(aInput, nOutputDim, cType)
-      METHOD LinearTransformation(aInput, nOutputDim)   
-      METHOD MatAdd( aMatrix1, aMatrix2 )   
+      METHOD LinearTransformation(aInput, nOutputDim)
+      METHOD MatAdd( aMatrix1, aMatrix2 )
       METHOD MatMul(aMatrix1, aMatrix2)
       METHOD Transpose(aMatrix)
       METHOD SoftMax(aVector)
@@ -39,18 +41,19 @@ CLASS Transformer
       METHOD ReLU(aInput)
       METHOD Mean(aVector)
       METHOD Variance(aVector, nMean)
-      METHOD ElementWiseAddition(aMatrix1, aMatrix2)
-      METHOD ElementWiseMultiplication(aMatrix1, aMatrix2)
+      METHOD ElementWiseAddition( aMatrix1, aMatrix2 )
+      METHOD ElementWiseMultiplication( aMatrix1, aMatrix2 )
       METHOD GeneratePositionalEncoding()
       METHOD InitializeParameters()
-      METHOD GenerateWeights(nInputDim, nOutputDim, cType)
-      METHOD BackwardMultiHeadAttention(aInputGradient, aQuery, aKey, aValue)
-      METHOD BackwardFeedForward(aInputGradient, aInput)
-      METHOD BackwardLayerNorm(aInputGradient, aInput)
-      METHOD BackwardLinearProjection(aInputGradient, aInput, cType)
-      METHOD BackwardReLU(aInputGradient, aInput)
-      METHOD BackwardSoftMax(aInputGradient, aInput)
-
+      METHOD GenerateWeights( nInputDim, nOutputDim, cType )
+      METHOD BackwardEncode( aGradient )
+      METHOD BackwardMultiHeadAttention( aInputGradient, aQuery, aKey, aValue )
+      METHOD BackwardFeedForward( aInputGradient, aInput )
+      METHOD BackwardLayerNorm( aInputGradient, aInput )
+      METHOD BackwardLinearProjection( aInputGradient, aInput, cType )
+      METHOD BackwardReLU( aInputGradient, aInput )
+      METHOD BackwardSoftMax( aInputGradient, aInput )
+   
 ENDCLASS
 
 METHOD New(nHeads, nModelDim, nFeedForwardDim, nMaxSeqLength) CLASS Transformer
@@ -124,21 +127,30 @@ RETURN NIL
 METHOD BackwardEncode(aGradient) CLASS Transformer
    LOCAL aFeedForwardGradient, aAttentionGradient
    
+   // Verificar si las entradas guardadas son NIL
+   IF ::aLastFeedForwardInput == NIL .OR. ::aLastAttentionInput == NIL
+      ? "Error: Entradas guardadas en BackwardEncode son NIL"
+      RETURN NIL
+   ENDIF
+
    // Backward pass through Feed Forward
-   aFeedForwardGradient := ::BackwardLayerNorm(aGradient, NIL)  // We don't need the input for this implementation of LayerNorm
-   aFeedForwardGradient := ::BackwardFeedForward(aFeedForwardGradient, NIL)  // We would need to store the input in the forward pass to use it here
-   
+   aFeedForwardGradient := ::BackwardLayerNorm(aGradient, ::aLastFeedForwardInput)
+   IF aFeedForwardGradient != NIL
+      aFeedForwardGradient := ::BackwardFeedForward(aFeedForwardGradient, ::aLastFeedForwardInput)
+   ENDIF
+
    // Add residual connection
    aGradient := ::ElementWiseAddition(aGradient, aFeedForwardGradient)
-   
+
    // Backward pass through Multi-Head Attention
-   aAttentionGradient := ::BackwardLayerNorm(aGradient, NIL)
-   aAttentionGradient := ::BackwardMultiHeadAttention(aAttentionGradient, NIL, NIL, NIL)  // We would need to store Q, K, V in the forward pass
-   
-   // Add residual connection and positional encoding gradient
+   aAttentionGradient := ::BackwardLayerNorm(aGradient, ::aLastAttentionInput)
+   IF aAttentionGradient != NIL
+      aAttentionGradient := ::BackwardMultiHeadAttention(aAttentionGradient, ::aLastAttentionInput, ::aLastAttentionInput, ::aLastAttentionInput)
+   ENDIF
+
+   // Add residual connection
    aGradient := ::ElementWiseAddition(aGradient, aAttentionGradient)
-   // Note: We're not computing gradients for positional encodings as they're typically fixed
-   
+
 RETURN aGradient
 
 METHOD BackwardMultiHeadAttention(aInputGradient, aQuery, aKey, aValue) CLASS Transformer
@@ -297,14 +309,33 @@ METHOD BackwardSoftMax(aInputGradient, aInput) CLASS Transformer
 RETURN aOutputGradient
 
 METHOD Encode(aInput) CLASS Transformer
+
    LOCAL aPositionalInput, aAttOutput, aFeedForwardOutput
-   
+
+   // Aplicar codificación posicional
    aPositionalInput := ::PositionalEncoding(aInput)
+   
+   // Almacenar la entrada para la atención de múltiples cabezas
+   ::aLastAttentionInput := aPositionalInput
+
+   // Realizar la atención de múltiples cabezas
    aAttOutput := ::MultiHeadAttention(aPositionalInput, aPositionalInput, aPositionalInput)
+   
+   // Aplicar normalización de capa y conexión residual
    aAttOutput := ::LayerNorm(::ElementWiseAddition(aPositionalInput, aAttOutput))
    
+   // Almacenar la entrada para la capa feed-forward
+   ::aLastFeedForwardInput := aAttOutput
+   if( aPositionalInut == NIL )
+      ? "Es NIL", InKey( 0 )
+   endif   
+
+   // Aplicar la capa feed-forward
    aFeedForwardOutput := ::FeedForward(aAttOutput)
+   
+   // Aplicar normalización de capa y conexión residual final
    aFeedForwardOutput := ::LayerNorm(::ElementWiseAddition(aAttOutput, aFeedForwardOutput))
+
 RETURN aFeedForwardOutput
 
 METHOD Decode(aInput, aEncoderOutput) CLASS Transformer
@@ -351,18 +382,20 @@ METHOD GeneratePositionalEncoding() CLASS Transformer
    NEXT
 RETURN NIL
 
-METHOD Forward(aInput) CLASS Transformer
+METHOD Forward( aInput ) CLASS Transformer
+
    LOCAL aAttOutput, aFeedForwardOutput
 
-   aAttOutput := ::MultiHeadAttention(aInput, aInput, aInput)
-   aAttOutput := ::LayerNorm(::MatAdd(aInput, aAttOutput))
+   aAttOutput := ::MultiHeadAttention( aInput, aInput, aInput ) 
+   aAttOutput := ::LayerNorm( ::MatAdd( aInput, aAttOutput ) )
 
-   aFeedForwardOutput := ::FeedForward(aAttOutput)
-   aFeedForwardOutput := ::LayerNorm(::MatAdd(aAttOutput, aFeedForwardOutput))
+   aFeedForwardOutput := ::FeedForward( aAttOutput )
+   aFeedForwardOutput := ::LayerNorm( ::MatAdd( aAttOutput, aFeedForwardOutput ) )
 
    RETURN aFeedForwardOutput
 
-METHOD MultiHeadAttention(aQuery, aKey, aValue) CLASS Transformer
+METHOD MultiHeadAttention( aQuery, aKey, aValue ) CLASS Transformer
+
    LOCAL nHeadDim := ::nModelDim / ::nHeads
    LOCAL aHeadOutputs := {}
    LOCAL i, aQ, aK, aV, aHeadOutput, aConcatenated, aProjected
@@ -372,6 +405,11 @@ METHOD MultiHeadAttention(aQuery, aKey, aValue) CLASS Transformer
       aK := ::LinearProjection(aKey, nHeadDim, "attention_k" + AllTrim(Str(i)))
       aV := ::LinearProjection(aValue, nHeadDim, "attention_v" + AllTrim(Str(i)))
       
+      ? "nModelDim", ::nModelDim
+      ? "nHeads", ::nHeads
+      ? "nHeadDim", nHeadDim
+      ? "Query, key and value", hb_ValToExp( aQ ), hb_ValToExp( aK ), hb_ValToExp( aV )
+      // ? hb_ValToExp( aQ ), hb_ValToExp( aK ), hb_ValToExp( aV )
       aHeadOutput := ::DotProductAttention(aQ, aK, aV)
       AAdd(aHeadOutputs, aHeadOutput)
    NEXT
@@ -416,7 +454,8 @@ METHOD DotProductAttention(aQuery, aKey, aValue) CLASS Transformer
 
 RETURN aOutput
 
-METHOD LinearProjection(aInput, nOutputDim, cType) CLASS Transformer
+METHOD LinearProjection( aInput, nOutputDim, cType ) CLASS Transformer
+
    LOCAL aOutput := {}
    LOCAL i, j, nWeightIndex, nBiasIndex
 
@@ -430,10 +469,12 @@ METHOD LinearProjection(aInput, nOutputDim, cType) CLASS Transformer
    ENDIF
 
    // Perform matrix multiplication for the entire input
-   aOutput := ::MatMul(aInput, ::aWeights[nWeightIndex])
+   ? "aInput", Len( aInput )
+   ? "::aWeights[nWeightIndex]", Len( ::aWeights[ nWeightIndex ] )
+   aOutput := ::MatMul( aInput, ::aWeights[ nWeightIndex ] )
 
    // Add biases
-   FOR i := 1 TO Len(aOutput)
+   FOR i := 1 TO Len( aOutput )
        FOR j := 1 TO nOutputDim
            aOutput[i][j] += ::aBiases[nBiasIndex][j]
        NEXT
@@ -516,6 +557,7 @@ METHOD SumGradients(aGradients) CLASS Transformer
 RETURN aSumGradient
 
 METHOD LinearTransformation(aInput, nOutputDim) CLASS Transformer
+
    LOCAL aOutput
    LOCAL aWeights := GenerateRandomMatrix( Len( aInput[ 1 ] ), nOutputDim )
    LOCAL aBiases := GenerateRandomVector( nOutputDim )
@@ -593,20 +635,22 @@ METHOD Transpose(aMatrix) CLASS Transformer
 RETURN aResult
 
 METHOD UpdateParameters(nLearningRate) CLASS Transformer
-   LOCAL cKey
-
-   FOR EACH cKey IN hb_HKeys(::aGradients)
-      IF "weight" $ cKey
-         ::UpdateWeights(cKey, ::aGradients[cKey], nLearningRate)
-      ELSEIF "bias" $ cKey
-         ::UpdateBiases(cKey, ::aGradients[cKey], nLearningRate)
-      ELSEIF cKey == "gamma"
-         ::UpdateGamma(::aGradients[cKey], nLearningRate)
-      ELSEIF cKey == "beta"
-         ::UpdateBeta(::aGradients[cKey], nLearningRate)
-      ENDIF
+   LOCAL i, aGradient
+   
+   FOR i := 1 TO Len(::aGradients)
+      aGradient := ::aGradients[i]
+      DO CASE
+      CASE "weight" $ aGradient[1]
+         ::UpdateWeights(aGradient[1], aGradient[2], nLearningRate)
+      CASE "bias" $ aGradient[1]
+         ::UpdateBiases(aGradient[1], aGradient[2], nLearningRate)
+      CASE aGradient[1] == "gamma"
+         ::UpdateGamma(aGradient[2], nLearningRate)
+      CASE aGradient[1] == "beta"
+         ::UpdateBeta(aGradient[2], nLearningRate)
+      ENDCASE
    NEXT
-
+   
 RETURN NIL
 
 METHOD UpdateWeights(cKey, aGradient, nLearningRate) CLASS Transformer
