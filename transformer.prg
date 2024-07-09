@@ -405,11 +405,7 @@ METHOD MultiHeadAttention( aQuery, aKey, aValue ) CLASS Transformer
       aK := ::LinearProjection(aKey, nHeadDim, "attention_k" + AllTrim(Str(i)))
       aV := ::LinearProjection(aValue, nHeadDim, "attention_v" + AllTrim(Str(i)))
       
-      ? "nModelDim", ::nModelDim
-      ? "nHeads", ::nHeads
-      ? "nHeadDim", nHeadDim
-      ? "Query, key and value", hb_ValToExp( aQ ), hb_ValToExp( aK ), hb_ValToExp( aV )
-      // ? hb_ValToExp( aQ ), hb_ValToExp( aK ), hb_ValToExp( aV )
+      // ? "Query, key and value", hb_ValToExp( aQ ), hb_ValToExp( aK ), hb_ValToExp( aV )
       aHeadOutput := ::DotProductAttention(aQ, aK, aV)
       AAdd(aHeadOutputs, aHeadOutput)
    NEXT

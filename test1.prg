@@ -57,12 +57,12 @@ FUNCTION Main()
     aGenerated := oTransformer:Forward(aTestOneHot)
     
     // Convertir la salida a token
-    // nMaxIndex := AScan(ATail(aGenerated), {|x| x == hb_Max(ATail(aGenerated))})
     ? hb_ValToExp( aGenerated )
-    cGeneratedWord := aVocab[nMaxIndex]
+    // nMaxIndex := AScan(ATail(aGenerated), {|x| x == hb_Max(ATail(aGenerated))})
+    // cGeneratedWord := aVocab[nMaxIndex]
     
-    ? "Frase de prueba:", cTestPhrase
-    ? "Palabra generada:", cGeneratedWord
+    // ? "Frase de prueba:", cTestPhrase
+    // ? "Palabra generada:", cGeneratedWord
 
 RETURN NIL
 
