@@ -7,13 +7,15 @@
 * ========================================================================
 */
 
+request hb_gt_std, hb_gt_std_default
+
 PROCEDURE Main()
    LOCAL nLayers := 2       // Reducir complejidad: menos capas
    LOCAL nVocabSize := 5    // Tokens de 0 a 4
-   LOCAL nEmbedDim := 16    // DimensiÛn de los vectores
-   LOCAL nHiddenDim := 32   // Reducir dimensiÛn oculta
+   LOCAL nEmbedDim := 16    // DimensiÔøΩn de los vectores
+   LOCAL nHiddenDim := 32   // Reducir dimensiÔøΩn oculta
    LOCAL nHeadDim := nEmbedDim
-   LOCAL nEpochs := 2000    // M·s Èpocas para asegurar la convergencia
+   LOCAL nEpochs := 2000    // MÔøΩs ÔøΩpocas para asegurar la convergencia
    LOCAL nLearningRate := 0.005 // Learning rate moderado
    LOCAL oModel, mEmbeddedInput, mPositionalEncoding, mInput, mTarget, mOutput, nLoss, dLoss, i
    LOCAL nMinLoss := 999999, nEpochMinLoss := 0, nEpochsSinceMin := 0
@@ -29,7 +31,7 @@ PROCEDURE Main()
    mEmbeddedInput  := CreateMatrixFromTokens( aInputTokens, mEmbeddings )
    mTarget := CreateMatrixFromTokens( aTargetTokens, mEmbeddings )
 
-   // Crear y aÒadir la CodificaciÛn Posicional
+   // Crear y aÔøΩadir la CodificaciÔøΩn Posicional
    mPositionalEncoding := CreatePositionalEncoding( nSeqLen, nEmbedDim )
    mInput := HB_MATRIXADD( mEmbeddedInput, mPositionalEncoding )
 
@@ -39,7 +41,7 @@ PROCEDURE Main()
    ? "Iniciando entrenamiento (con Positional Encoding y Adam)..."
    ? "Entrada:", HB_ValToExp(aInputTokens)
    ? "Objetivo:", HB_ValToExp(aTargetTokens)
-   ? "ConfiguraciÛn: …pocas =", nEpochs, ", LR =", nLearningRate
+   ? "Configuraci√≥n: ÔøΩpocas =", nEpochs, ", LR =", nLearningRate
    ? Replicate("-", 50)
 
    // --- 3. Bucle de entrenamiento ---
@@ -51,12 +53,12 @@ PROCEDURE Main()
       oModel:ZeroGrads()
       mOutput := oModel:Forward( mInput )
 
-      // ====> ?VERIFICACI”N CRÕTICA EN HARBOUR! <====
-      // Si el forward pass fallÛ, mOutput estar· vacÌo.
+      // ====> ?VERIFICACI√ìN CR√çTICA EN HARBOUR! <====
+      // Si el forward pass fall√≥, mOutput estar√° vac√≠o.
       IF Empty(mOutput)
          ? "---------------------------------------------------------"
-         ? "?ERROR CRÕTICO! El forward pass del modelo ha fallado."
-         ? "Causa m·s probable: Discordancia de dimensiones en las"
+         ? "?ERROR CR√çTICO! El forward pass del modelo ha fallado."
+         ? "Causa mÔøΩs probable: Discordancia de dimensiones en las"
          ? "matrices dentro de la arquitectura del modelo."
          ? "Revisa nEmbedDim, nHiddenDim y nHeadDim."
          ? "---------------------------------------------------------"
@@ -77,9 +79,9 @@ PROCEDURE Main()
          nEpochsSinceMin++
       ENDIF
       
-      // Early stopping: si no mejora en 500 Èpocas, detener
+      // Early stopping: si no mejora en 500 ÔøΩpocas, detener
       IF nEpochsSinceMin > 200 .AND. i > 100
-         ? "Early stopping en Època", i, "- No hay mejora desde Època", nEpochMinLoss
+         ? "Early stopping en √âpoca", i, "- No hay mejora desde √©poca", nEpochMinLoss
          ? "Reentrenando hasta el mejor punto..."
          // Recrear y reentrenar hasta el mejor epoch
          oModel := TransformerModel():New( nLayers, nEmbedDim, nHiddenDim, nHeadDim )
@@ -94,33 +96,33 @@ PROCEDURE Main()
             oModel:Backward( dLoss )
             oModel:Update( nLearningRate )
          NEXT
-         ? "Modelo restaurado al mejor punto (Època", nEpochMinLoss, ")"
+         ? "Modelo restaurado al mejor punto (√©poca", nEpochMinLoss, ")"
          EXIT
       ENDIF
 
       IF i % 100 == 0 .OR. i <= 10
-         ? "…poca", padr(i, 5), "-> Loss:", nLoss, "  (Mejor:", nMinLoss, "en Època", nEpochMinLoss, ")", "SinMejora:", nEpochsSinceMin
+         ? "√âpoca", padr(i, 5), "-> Loss:", nLoss, "  (Mejor:", nMinLoss, "en √©poca", nEpochMinLoss, ")", "SinMejora:", nEpochsSinceMin
       ENDIF
    NEXT
    ? Replicate("-", 50)
 
-   // --- 4. VerificaciÛn Final ---
+   // --- 4. Verificaci√≥n Final ---
    ? "Entrenamiento finalizado. Verificando resultado:"
    mOutput := oModel:Forward( mInput )
    aPredictedTokens := DecodeOutputToTokens( mOutput, mEmbeddings )
 
    ? "Entrada:   ", HB_ValToExp(aInputTokens)
    ? "Objetivo:  ", HB_ValToExp(aTargetTokens)
-   ? "PredicciÛn:", HB_ValToExp(aPredictedTokens)
+   ? "Predicci√≥n:", HB_ValToExp(aPredictedTokens)
    
-   // Mostrar las distancias del ˙ltimo token para debug
-   ? "Distancias del ˙ltimo token a cada embedding:"
+   // Mostrar las distancias del ÔøΩltimo token para debug
+   ? "Distancias del √∫ltimo token a cada embedding:"
    FOR i := 0 TO nVocabSize - 1
       ? "  Token", i, ":", EuclideanDistSq(mOutput[5], mEmbeddings[i+1])
    NEXT
    ?
    IF HB_ValToExp(aTargetTokens) == HB_ValToExp(aPredictedTokens)
-      ? "?…XITO! El modelo ha aprendido a invertir la secuencia."
+      ? "√âXITO! El modelo ha aprendido a invertir la secuencia."
    ELSE
       ? "FALLO. El modelo no ha aprendido la tarea correctamente."
    ENDIF
@@ -128,12 +130,12 @@ PROCEDURE Main()
 RETURN
 
 /*
-* Crea una matriz de embedding con codificaciÛn one-hot.
+* Crea una matriz de embedding con codificaciÔøΩn one-hot.
 */
 STATIC FUNCTION CreateOneHotEmbeddings( nVocabSize, nEmbedDim )
    LOCAL mEmbeddings := {}
    LOCAL i, j, aRow
-   // Asegurarse de que la dimensiÛn del embedding sea suficiente
+   // Asegurarse de que la dimensiÔøΩn del embedding sea suficiente
    IF nEmbedDim < nVocabSize
       nEmbedDim := nVocabSize
    ENDIF
