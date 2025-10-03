@@ -2,19 +2,19 @@ sample1.prg
 transformer.prg
 matrixes.c
 
--lgdiplus
--lole32
--lOleDlg
--lversion
--lucrt
--luxtheme
+{x86_64}-lgdiplus
+{x86_64}-lole32
+{x86_64}-lOleDlg
+{x86_64}-lversion
+{x86_64}-lucrt
+{x86_64}-luxtheme
 
 xhb.hbc
 hbct.hbc
-hbwin.hbc
+{x86_64}hbwin.hbc
 hbmzip.hbc
 hbziparc.hbc
 hbfoxpro.hbc
 
--ldflag=/NODEFAULTLIB:msvcrt 
--ldflag+=/NODEFAULTLIB:libucrt
+{x86_64}-ldflag=/NODEFAULTLIB:msvcrt 
+{x86_64}-ldflag+=/NODEFAULTLIB:libucrt
