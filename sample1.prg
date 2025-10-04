@@ -10,13 +10,13 @@
 request hb_gt_std, hb_gt_std_default
 
 PROCEDURE Main()
-   LOCAL nLayers := 2       // Reducir complejidad: menos capas
+   LOCAL nLayers := 6       // Increase layers further for better capacity
    LOCAL nVocabSize := 5    // Tokens de 0 a 4
-   LOCAL nEmbedDim := 16    // Dimensión de los vectores
-   LOCAL nHiddenDim := 32   // Reducir dimensión oculta
-   LOCAL nHeadDim := nEmbedDim
-   LOCAL nEpochs := 2000    // Más épocas para asegurar la convergencia
-   LOCAL nLearningRate := 0.005 // Learning rate moderado
+   LOCAL nEmbedDim := 25    // Further increase embedding dimension
+   LOCAL nHiddenDim := 100  // Increase hidden dimension significantly
+   LOCAL nHeadDim := 25     // Match head dimension to embedding
+   LOCAL nEpochs := 5000    // Significantly more epochs for identity learning
+   LOCAL nLearningRate := 0.0005 // Even lower learning rate for stability
    LOCAL oModel, mEmbeddedInput, mPositionalEncoding, mInput, mTarget, mOutput, nLoss, dLoss, i
    LOCAL nMinLoss := 999999, nEpochMinLoss := 0, nEpochsSinceMin := 0
 
@@ -77,8 +77,8 @@ PROCEDURE Main()
          nEpochsSinceMin++
       ENDIF
       
-      // Early stopping: si no mejora en 500 épocas, detener
-      IF nEpochsSinceMin > 200 .AND. i > 100
+      // Early stopping: si no mejora en 300 épocas, detener
+      IF nEpochsSinceMin > 300 .AND. i > 100
          ? "Early stopping en Época", i, "- No hay mejora desde época", nEpochMinLoss
          ? "Reentrenando hasta el mejor punto..."
          // Recrear y reentrenar hasta el mejor epoch
@@ -98,7 +98,7 @@ PROCEDURE Main()
          EXIT
       ENDIF
 
-      IF i % 100 == 0 .OR. i <= 10
+      IF i % 100 == 0 .OR. i <= 20 .OR. (i > 100 .AND. i <= 500 .AND. i % 50 == 0)
          ? "Época", padr(i, 5), "-> Loss:", nLoss, "  (Mejor:", nMinLoss, "en época", nEpochMinLoss, ")", "Sin mejora desde:", nEpochsSinceMin
       ENDIF
    NEXT
