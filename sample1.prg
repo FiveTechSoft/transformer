@@ -12,14 +12,13 @@ request hb_gt_std, hb_gt_std_default
 PROCEDURE Main()
    LOCAL nLayers := 2       // Reducir complejidad: menos capas
    LOCAL nVocabSize := 5    // Tokens de 0 a 4
-   LOCAL nEmbedDim := 16    // Dimensi�n de los vectores
-   LOCAL nHiddenDim := 32   // Reducir dimensi�n oculta
+   LOCAL nEmbedDim := 16    // Dimensión de los vectores
+   LOCAL nHiddenDim := 32   // Reducir dimensión oculta
    LOCAL nHeadDim := nEmbedDim
-   LOCAL nEpochs := 2000    // M�s �pocas para asegurar la convergencia
+   LOCAL nEpochs := 2000    // Más épocas para asegurar la convergencia
    LOCAL nLearningRate := 0.005 // Learning rate moderado
    LOCAL oModel, mEmbeddedInput, mPositionalEncoding, mInput, mTarget, mOutput, nLoss, dLoss, i
    LOCAL nMinLoss := 999999, nEpochMinLoss := 0, nEpochsSinceMin := 0
-   LOCAL oBestModel := NIL
 
    // --- 1. Definir el problema y los datos ---
    LOCAL aInputTokens  := { 4, 1, 3, 2, 0 }
@@ -31,7 +30,7 @@ PROCEDURE Main()
    mEmbeddedInput  := CreateMatrixFromTokens( aInputTokens, mEmbeddings )
    mTarget := CreateMatrixFromTokens( aTargetTokens, mEmbeddings )
 
-   // Crear y a�adir la Codificaci�n Posicional
+   // Crear y añadir la Codificación Posicional
    mPositionalEncoding := CreatePositionalEncoding( nSeqLen, nEmbedDim )
    mInput := HB_MATRIXADD( mEmbeddedInput, mPositionalEncoding )
 
@@ -53,16 +52,15 @@ PROCEDURE Main()
       oModel:ZeroGrads()
       mOutput := oModel:Forward( mInput )
 
-      // ====> ?VERIFICACIÓN CRÍTICA EN HARBOUR! <====
       // Si el forward pass falló, mOutput estará vacío.
       IF Empty(mOutput)
          ? "---------------------------------------------------------"
          ? "?ERROR CRÍTICO! El forward pass del modelo ha fallado."
-         ? "Causa m�s probable: Discordancia de dimensiones en las"
+         ? "Causa más probable: Discordancia de dimensiones en las"
          ? "matrices dentro de la arquitectura del modelo."
          ? "Revisa nEmbedDim, nHiddenDim y nHeadDim."
          ? "---------------------------------------------------------"
-         QUIT // Terminar el programa
+         QUIT
       ENDIF
 
       nLoss   := HB_MSE_LOSS( mOutput, mTarget )
@@ -101,7 +99,7 @@ PROCEDURE Main()
       ENDIF
 
       IF i % 100 == 0 .OR. i <= 10
-         ? "Época", padr(i, 5), "-> Loss:", nLoss, "  (Mejor:", nMinLoss, "en época", nEpochMinLoss, ")", "SinMejora:", nEpochsSinceMin
+         ? "Época", padr(i, 5), "-> Loss:", nLoss, "  (Mejor:", nMinLoss, "en época", nEpochMinLoss, ")", "Sin mejora desde:", nEpochsSinceMin
       ENDIF
    NEXT
    ? Replicate("-", 50)
