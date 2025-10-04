@@ -22,8 +22,8 @@ PROCEDURE Main()
    LOCAL oBestModel := NIL
 
    // --- 1. Definir el problema y los datos ---
-   LOCAL aInputTokens  := { 1, 2, 3, 4, 0 }
-   LOCAL aTargetTokens := { 4, 3, 2, 1, 0 }
+   LOCAL aInputTokens  := { 4, 1, 3, 2, 0 }
+   LOCAL aTargetTokens := { 4, 1, 3, 2, 0 } // { 4, 3, 2, 1, 0 }
    LOCAL nSeqLen := Len(aInputTokens)
 
    LOCAL mEmbeddings := CreateOneHotEmbeddings( nVocabSize, nEmbedDim ), aPredictedTokens
@@ -41,7 +41,7 @@ PROCEDURE Main()
    ? "Iniciando entrenamiento (con Positional Encoding y Adam)..."
    ? "Entrada:", HB_ValToExp(aInputTokens)
    ? "Objetivo:", HB_ValToExp(aTargetTokens)
-   ? "Configuración: �pocas =", nEpochs, ", LR =", nLearningRate
+   ? "Configuración: épocas =", nEpochs, ", LR =", nLearningRate
    ? Replicate("-", 50)
 
    // --- 3. Bucle de entrenamiento ---
@@ -79,7 +79,7 @@ PROCEDURE Main()
          nEpochsSinceMin++
       ENDIF
       
-      // Early stopping: si no mejora en 500 �pocas, detener
+      // Early stopping: si no mejora en 500 épocas, detener
       IF nEpochsSinceMin > 200 .AND. i > 100
          ? "Early stopping en Época", i, "- No hay mejora desde época", nEpochMinLoss
          ? "Reentrenando hasta el mejor punto..."
@@ -122,9 +122,9 @@ PROCEDURE Main()
    NEXT
    ?
    IF HB_ValToExp(aTargetTokens) == HB_ValToExp(aPredictedTokens)
-      ? "ÉXITO! El modelo ha aprendido a invertir la secuencia."
+      ? "ÉXITO! El modelo ha aprendido correctamente."
    ELSE
-      ? "FALLO. El modelo no ha aprendido la tarea correctamente."
+      ? "FALLO. El modelo no ha aprendido correctamente."
    ENDIF
 
 RETURN
