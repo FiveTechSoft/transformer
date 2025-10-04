@@ -35,7 +35,6 @@ static PHB_ITEM matrix_mul_scalar( PHB_ITEM pMatrix, double scalar );
 static PHB_ITEM matrix_div_scalar( PHB_ITEM pMatrix, double scalar );
 static PHB_ITEM matrix_sum_axis0( PHB_ITEM pMatrix );
 static PHB_ITEM relu_forward( PHB_ITEM pMatrix );
-static PHB_ITEM softmax_forward( PHB_ITEM pValues );
 
 // --- Prototipos de los "Wrappers" (API para Harbour) ---
 HB_FUNC( HB_SEEDRAND );
@@ -208,11 +207,36 @@ static PHB_ITEM matrix_add_or_sub( PHB_ITEM pMatrix1, PHB_ITEM pMatrix2, int mod
 static PHB_ITEM matrix_add( PHB_ITEM pMatrix1, PHB_ITEM pMatrix2 ) { return matrix_add_or_sub(pMatrix1, pMatrix2, 1); }
 static PHB_ITEM matrix_sub( PHB_ITEM pMatrix1, PHB_ITEM pMatrix2 ) { return matrix_add_or_sub(pMatrix1, pMatrix2, -1); }
 
+static PHB_ITEM matrix_mul_scalar( PHB_ITEM pMatrix, double scalar )
+{
+   HB_SIZE nRows, nCols, i, j;
+   PHB_ITEM pResult, pRow, pNewRow;
+   
+   if( !pMatrix || !HB_IS_ARRAY(pMatrix) || hb_arrayLen(pMatrix) == 0 ) return hb_itemArrayNew(0);
+   
+   nRows = hb_arrayLen(pMatrix);
+   nCols = hb_arrayLen(hb_arrayGetItemPtr(pMatrix, 1));
+   pResult = hb_itemArrayNew(nRows);
+   
+   for( i = 0; i < nRows; i++ )
+   {
+      pRow = hb_arrayGetItemPtr(pMatrix, i + 1);
+      pNewRow = hb_itemArrayNew(nCols);
+      for( j = 0; j < nCols; j++ )
+      {
+         hb_arraySetND(pNewRow, j + 1, hb_arrayGetND(pRow, j + 1) * scalar);
+      }
+      hb_arraySet(pResult, i + 1, pNewRow);
+      hb_itemRelease(pNewRow);
+   }
+   return pResult;
+}
 
 static PHB_ITEM matrix_sum_axis0( PHB_ITEM pMatrix )
 {
     HB_SIZE nRows, nCols, i, j;
-    PHB_ITEM pResultRow;
+    PHB_ITEM pResultRow, pRow, pResultMatrix;
+    
     if (!pMatrix || hb_arrayLen(pMatrix) == 0) return hb_itemArrayNew(0);
 
     nRows = hb_arrayLen(pMatrix);
@@ -221,13 +245,13 @@ static PHB_ITEM matrix_sum_axis0( PHB_ITEM pMatrix )
     for (j = 0; j < nCols; j++) { hb_arraySetND(pResultRow, j + 1, 0.0); }
 
     for (i = 0; i < nRows; i++) {
-        PHB_ITEM pRow = hb_arrayGetItemPtr(pMatrix, i + 1);
+        pRow = hb_arrayGetItemPtr(pMatrix, i + 1);
         for (j = 0; j < nCols; j++) {
             hb_arraySetND(pResultRow, j + 1, hb_arrayGetND(pResultRow, j + 1) + hb_arrayGetND(pRow, j + 1));
         }
     }
     // Para que sea una matriz 1xN
-    PHB_ITEM pResultMatrix = hb_itemArrayNew(1);
+    pResultMatrix = hb_itemArrayNew(1);
     hb_arraySet(pResultMatrix, 1, pResultRow);
     hb_itemRelease(pResultRow);
     return pResultMatrix;
@@ -284,11 +308,13 @@ static PHB_ITEM relu_forward( PHB_ITEM pMatrix )
 * Retorna:
 * Una nueva matriz con las probabilidades calculadas, o un array vacío si hay error.
 */
+/*
 static PHB_ITEM softmax_forward( PHB_ITEM pValues )
 {
    HB_SIZE nRows, nCols, i, j;
    PHB_ITEM pResult, pRow, pRowResult;
    double sumExp, maxValue;
+   double *expValues;
 
    // --- Validación de la entrada ---
    if( !pValues || !HB_IS_ARRAY(pValues) || hb_arrayLen(pValues) == 0 )
@@ -317,7 +343,8 @@ static PHB_ITEM softmax_forward( PHB_ITEM pValues )
       // --- 1. Encontrar el valor máximo en la fila (para estabilidad numérica) ---
       for( j = 0; j < nCols; j++ )
       {
-         double val = hb_arrayGetND( pRow, j + 1 );
+         double val;
+         val = hb_arrayGetND( pRow, j + 1 );
          if (val > maxValue)
          {
             maxValue = val;
@@ -326,7 +353,7 @@ static PHB_ITEM softmax_forward( PHB_ITEM pValues )
 
       // --- 2. Calcular los exponentes (e^(x - max)) y su suma ---
       // Se utiliza un array temporal en C para mayor eficiencia.
-      double *expValues = (double *) hb_xalloc( nCols * sizeof(double) );
+      expValues = (double *) hb_xalloc( nCols * sizeof(double) );
       if( expValues == NULL )
       {
           // Manejar error de asignación de memoria
@@ -338,7 +365,8 @@ static PHB_ITEM softmax_forward( PHB_ITEM pValues )
       for( j = 0; j < nCols; j++ )
       {
          // Restar maxValue previene desbordamientos (overflow)
-         double expValue = exp( hb_arrayGetND( pRow, j + 1 ) - maxValue );
+         double expValue;
+         expValue = exp( hb_arrayGetND( pRow, j + 1 ) - maxValue );
          expValues[j] = expValue;
          sumExp += expValue;
       }
@@ -365,6 +393,7 @@ static PHB_ITEM softmax_forward( PHB_ITEM pValues )
 
    return pResult; // La función que llama debe liberar este resultado
 }
+*/
 
 /*
 * static PHB_ITEM matrix_add_broadcast( PHB_ITEM pMatrix, PHB_ITEM pVector )
@@ -443,6 +472,7 @@ HB_FUNC( HB_MATRIXTRANSPOSE ) { hb_itemReturnRelease( matrix_transpose( hb_param
 HB_FUNC( HB_MATRIXMULTIPLY ) { hb_itemReturnRelease( matrix_multiply( hb_param(1, HB_IT_ARRAY), hb_param(2, HB_IT_ARRAY) ) ); }
 HB_FUNC( HB_MATRIXADD ) { hb_itemReturnRelease( matrix_add( hb_param(1, HB_IT_ARRAY), hb_param(2, HB_IT_ARRAY) ) ); }
 HB_FUNC( HB_MATRIXSUB ) { hb_itemReturnRelease( matrix_sub( hb_param(1, HB_IT_ARRAY), hb_param(2, HB_IT_ARRAY) ) ); }
+HB_FUNC( HB_MATRIXMULSCALAR ) { hb_itemReturnRelease( matrix_mul_scalar( hb_param(1, HB_IT_ARRAY), hb_parnd(2) ) ); }
 HB_FUNC( HB_MATRIXSUMAXIS0 ) { hb_itemReturnRelease( matrix_sum_axis0( hb_param(1, HB_IT_ARRAY) ) ); }
 HB_FUNC( HB_RELU ) { hb_itemReturnRelease( relu_forward( hb_param(1, HB_IT_ARRAY) ) ); }
 // ... (Más wrappers para el resto de funciones) ...
@@ -868,51 +898,58 @@ HB_FUNC( HB_MATRIXADDBROADCAST )
 */
 HB_FUNC( HB_LAYERNORM_BACKWARD )
 {
+    // --- Variable declarations at the beginning (C89 compliance) ---
+    PHB_ITEM pDY, pX, pGamma;
+    PHB_ITEM pDX, pDGamma, pDBeta, pResultArray;
+    PHB_ITEM pGammaRow, pDGammaRow, pDBetaRow;
+    PHB_ITEM pXRow, pDYRow, pDXRow;
+    HB_SIZE nRows, nCols, i, j, k;
+    double epsilon, sum, mean, variance, inv_std_dev, val, x_hat, x_hat_k, dL_dy_k_gamma_k, sum_term1, sum_term2, x_hat_j, dL_dy_j_gamma_j, dx;
+    
     // --- 1. Obtener Parámetros de Harbour ---
-    PHB_ITEM pDY      = hb_param( 1, HB_IT_ARRAY ); // Gradiente de la salida
-    PHB_ITEM pX       = hb_param( 2, HB_IT_ARRAY ); // Entrada original
-    PHB_ITEM pGamma   = hb_param( 3, HB_IT_ARRAY ); // Pesos Gamma
-    double epsilon    = HB_ISNIL(4) ? 1e-5 : hb_parnd(4);
+    pDY      = hb_param( 1, HB_IT_ARRAY ); // Gradiente de la salida
+    pX       = hb_param( 2, HB_IT_ARRAY ); // Entrada original
+    pGamma   = hb_param( 3, HB_IT_ARRAY ); // Pesos Gamma
+    epsilon  = HB_ISNIL(4) ? 1e-5 : hb_parnd(4);
 
     // --- 2. Validación y Obtención de Dimensiones ---
     if( !pDY || !pX || !pGamma ) { hb_ret(); return; }
-    HB_SIZE nRows = hb_arrayLen(pX);
+    nRows = hb_arrayLen(pX);
     if( nRows == 0 ) { hb_ret(); return; }
-    HB_SIZE nCols = hb_arrayLen(hb_arrayGetItemPtr(pX, 1));
+    nCols = hb_arrayLen(hb_arrayGetItemPtr(pX, 1));
     if( nCols == 0 ) { hb_ret(); return; }
 
     // --- 3. Inicializar Matrices de Gradientes ---
-    PHB_ITEM pDX      = matrix_zero(nRows, nCols);
-    PHB_ITEM pDGamma  = matrix_zero(1, nCols);
-    PHB_ITEM pDBeta   = matrix_zero(1, nCols);
-    PHB_ITEM pResultArray = hb_itemArrayNew(3);
+    pDX      = matrix_zero(nRows, nCols);
+    pDGamma  = matrix_zero(1, nCols);
+    pDBeta   = matrix_zero(1, nCols);
+    pResultArray = hb_itemArrayNew(3);
 
-    PHB_ITEM pGammaRow  = hb_arrayGetItemPtr(pGamma, 1);
-    PHB_ITEM pDGammaRow = hb_arrayGetItemPtr(pDGamma, 1);
-    PHB_ITEM pDBetaRow  = hb_arrayGetItemPtr(pDBeta, 1);
-    HB_SIZE i, j, k;
+    pGammaRow  = hb_arrayGetItemPtr(pGamma, 1);
+    pDGammaRow = hb_arrayGetItemPtr(pDGamma, 1);
+    pDBetaRow  = hb_arrayGetItemPtr(pDBeta, 1);
 
     // --- 4. Calcular dGamma y dBeta ---
     // Estos gradientes son la suma a través de todo el lote (todas las filas).
     for (i = 0; i < nRows; i++)
     {
-        PHB_ITEM pXRow  = hb_arrayGetItemPtr(pX, i + 1);
-        PHB_ITEM pDYRow = hb_arrayGetItemPtr(pDY, i + 1);
+        pXRow = hb_arrayGetItemPtr(pX, i + 1);
+        pDYRow = hb_arrayGetItemPtr(pDY, i + 1);
 
         // Recalcular media y desviación estándar inversa para esta fila
         // NOTA: Para máxima eficiencia, estos valores se deberían "cachear"
         // durante el forward pass y pasar a esta función.
-        double sum = 0.0, mean, variance, inv_std_dev;
+        sum = 0.0;
         for (j = 0; j < nCols; j++) { sum += hb_arrayGetND(pXRow, j + 1); }
         mean = sum / nCols;
         sum = 0.0;
-        for (j = 0; j < nCols; j++) { double val = hb_arrayGetND(pXRow, j + 1) - mean; sum += val * val; }
+        for (j = 0; j < nCols; j++) { val = hb_arrayGetND(pXRow, j + 1) - mean; sum += val * val; }
         variance = sum / nCols;
         inv_std_dev = 1.0 / sqrt(variance + epsilon);
 
         for (j = 0; j < nCols; j++)
         {
-            double x_hat = (hb_arrayGetND(pXRow, j + 1) - mean) * inv_std_dev;
+            x_hat = (hb_arrayGetND(pXRow, j + 1) - mean) * inv_std_dev;
             // Acumular gradiente para gamma: dL/dgamma = dL/dy * x_hat
             hb_arraySetND(pDGammaRow, j + 1, hb_arrayGetND(pDGammaRow, j + 1) + hb_arrayGetND(pDYRow, j + 1) * x_hat);
             // Acumular gradiente para beta: dL/dbeta = dL/dy
@@ -924,26 +961,26 @@ HB_FUNC( HB_LAYERNORM_BACKWARD )
     // Este es el paso más complejo, ya que el gradiente de cada x_i depende de todos los demás.
     for (i = 0; i < nRows; i++)
     {
-        PHB_ITEM pXRow  = hb_arrayGetItemPtr(pX, i + 1);
-        PHB_ITEM pDYRow = hb_arrayGetItemPtr(pDY, i + 1);
-        PHB_ITEM pDXRow = hb_arrayGetItemPtr(pDX, i + 1);
+        pXRow = hb_arrayGetItemPtr(pX, i + 1);
+        pDYRow = hb_arrayGetItemPtr(pDY, i + 1);
+        pDXRow = hb_arrayGetItemPtr(pDX, i + 1);
         
         // Recalcular de nuevo media y desviación para esta fila
-        double sum = 0.0, mean, variance, inv_std_dev;
+        sum = 0.0;
         for (j = 0; j < nCols; j++) { sum += hb_arrayGetND(pXRow, j + 1); }
         mean = sum / nCols;
         sum = 0.0;
-        for (j = 0; j < nCols; j++) { double val = hb_arrayGetND(pXRow, j + 1) - mean; sum += val * val; }
+        for (j = 0; j < nCols; j++) { val = hb_arrayGetND(pXRow, j + 1) - mean; sum += val * val; }
         variance = sum / nCols;
         inv_std_dev = 1.0 / sqrt(variance + epsilon);
 
         // Términos intermedios para la fórmula de dX
-        double sum_term1 = 0.0;
-        double sum_term2 = 0.0;
+        sum_term1 = 0.0;
+        sum_term2 = 0.0;
         for (k = 0; k < nCols; k++)
         {
-            double x_hat_k = (hb_arrayGetND(pXRow, k + 1) - mean) * inv_std_dev;
-            double dL_dy_k_gamma_k = hb_arrayGetND(pDYRow, k + 1) * hb_arrayGetND(pGammaRow, k + 1);
+            x_hat_k = (hb_arrayGetND(pXRow, k + 1) - mean) * inv_std_dev;
+            dL_dy_k_gamma_k = hb_arrayGetND(pDYRow, k + 1) * hb_arrayGetND(pGammaRow, k + 1);
             sum_term1 += dL_dy_k_gamma_k;
             sum_term2 += dL_dy_k_gamma_k * x_hat_k;
         }
@@ -951,10 +988,10 @@ HB_FUNC( HB_LAYERNORM_BACKWARD )
         // Aplicar la fórmula final para cada elemento de la fila
         for (j = 0; j < nCols; j++)
         {
-            double x_hat_j = (hb_arrayGetND(pXRow, j + 1) - mean) * inv_std_dev;
-            double dL_dy_j_gamma_j = hb_arrayGetND(pDYRow, j + 1) * hb_arrayGetND(pGammaRow, j + 1);
+            x_hat_j = (hb_arrayGetND(pXRow, j + 1) - mean) * inv_std_dev;
+            dL_dy_j_gamma_j = hb_arrayGetND(pDYRow, j + 1) * hb_arrayGetND(pGammaRow, j + 1);
 
-            double dx = (double)nCols * dL_dy_j_gamma_j;
+            dx = (double)nCols * dL_dy_j_gamma_j;
             dx -= sum_term1;
             dx -= x_hat_j * sum_term2;
             dx *= inv_std_dev / (double)nCols;
@@ -989,9 +1026,15 @@ HB_FUNC( HB_LAYERNORM_BACKWARD )
 */
 HB_FUNC( HB_SOFTMAXBACKWARD )
 {
+   // --- Variable declarations at the beginning (C89 compliance) ---
+   PHB_ITEM pDProbs, pProbs, pDScores;
+   PHB_ITEM pDProbsRow, pProbsRow, pDScoresRow;
+   HB_SIZE nRows, nCols, i, j;
+   double row_sum, prob_j, dprob_j, dscore_j;
+
    // --- 1. Obtener Parámetros y Validar ---
-   PHB_ITEM pDProbs = hb_param(1, HB_IT_ARRAY); // Gradiente de las probabilidades
-   PHB_ITEM pProbs  = hb_param(2, HB_IT_ARRAY);  // Salida de probabilidades del forward pass
+   pDProbs = hb_param(1, HB_IT_ARRAY); // Gradiente de las probabilidades
+   pProbs  = hb_param(2, HB_IT_ARRAY);  // Salida de probabilidades del forward pass
 
    if (!pDProbs || !pProbs || !HB_IS_ARRAY(pDProbs) || !HB_IS_ARRAY(pProbs) ||
        hb_arrayLen(pDProbs) != hb_arrayLen(pProbs)) {
@@ -999,24 +1042,23 @@ HB_FUNC( HB_SOFTMAXBACKWARD )
       return;
    }
     
-   HB_SIZE nRows = hb_arrayLen(pProbs);
+   nRows = hb_arrayLen(pProbs);
    if (nRows == 0) {
       hb_itemReturn(hb_itemArrayNew(0));
       return;
    }
-   HB_SIZE nCols = hb_arrayLen(hb_arrayGetItemPtr(pProbs, 1));
+   nCols = hb_arrayLen(hb_arrayGetItemPtr(pProbs, 1));
 
    // --- 2. Preparar Matriz de Resultado ---
-   PHB_ITEM pDScores = hb_itemArrayNew(nRows);
-   HB_SIZE i, j;
+   pDScores = hb_itemArrayNew(nRows);
 
    // --- 3. Bucle Principal: Procesar cada fila del lote ---
    for (i = 0; i < nRows; i++)
    {
-      PHB_ITEM pDProbsRow  = hb_arrayGetItemPtr(pDProbs, i + 1);
-      PHB_ITEM pProbsRow   = hb_arrayGetItemPtr(pProbs, i + 1);
-      PHB_ITEM pDScoresRow = hb_itemArrayNew(nCols);
-      double row_sum = 0.0;
+      pDProbsRow = hb_arrayGetItemPtr(pDProbs, i + 1);
+      pProbsRow = hb_arrayGetItemPtr(pProbs, i + 1);
+      pDScoresRow = hb_itemArrayNew(nCols);
+      row_sum = 0.0;
 
       // --- Paso A: Calcular el producto punto: row_sum = dProbs · Probs ---
       // Esto calcula una suma ponderada del gradiente entrante.
@@ -1029,9 +1071,9 @@ HB_FUNC( HB_SOFTMAXBACKWARD )
       // dScores = Probs * (dProbs - row_sum)
       for (j = 0; j < nCols; j++)
       {
-         double prob_j   = hb_arrayGetND(pProbsRow, j + 1);
-         double dprob_j  = hb_arrayGetND(pDProbsRow, j + 1);
-         double dscore_j = prob_j * (dprob_j - row_sum);
+         prob_j = hb_arrayGetND(pProbsRow, j + 1);
+         dprob_j = hb_arrayGetND(pDProbsRow, j + 1);
+         dscore_j = prob_j * (dprob_j - row_sum);
          hb_arraySetND(pDScoresRow, j + 1, dscore_j);
       }
         
@@ -1061,10 +1103,16 @@ HB_FUNC( HB_SOFTMAXBACKWARD )
 */
 HB_FUNC( HB_SGD_UPDATE )
 {
+   // --- Variable declarations at the beginning (C89 compliance) ---
+   PHB_ITEM pW, pDW;
+   PHB_ITEM pRowW, pRowDW;
+   HB_SIZE nRowsW, nRowsDW, nColsW, nColsDW, i, j;
+   double lr, current_weight, gradient, updated_weight;
+
    // --- 1. Obtener Parámetros de Harbour ---
-   PHB_ITEM pW  = hb_param(1, HB_IT_ARRAY);   // Matriz de Pesos (Weights)
-   PHB_ITEM pDW = hb_param(2, HB_IT_ARRAY);   // Matriz de Gradientes (dWeights)
-   double   lr  = hb_parnd(3);                // Tasa de Aprendizaje (Learning Rate)
+   pW  = hb_param(1, HB_IT_ARRAY);   // Matriz de Pesos (Weights)
+   pDW = hb_param(2, HB_IT_ARRAY);   // Matriz de Gradientes (dWeights)
+   lr  = hb_parnd(3);                // Tasa de Aprendizaje (Learning Rate)
 
    // --- 2. Validación de Parámetros ---
    if( !pW || !pDW || !HB_IS_NUMERIC(hb_param(3, HB_IT_ANY)) )
@@ -1073,16 +1121,16 @@ HB_FUNC( HB_SGD_UPDATE )
       return;
    }
 
-   HB_SIZE nRowsW = hb_arrayLen(pW);
-   HB_SIZE nRowsDW = hb_arrayLen(pDW);
+   nRowsW = hb_arrayLen(pW);
+   nRowsDW = hb_arrayLen(pDW);
    if ( nRowsW != nRowsDW || nRowsW == 0 )
    {
       hb_errRT_BASE(EG_ARG, 3012, "Mismatched row dimensions or empty matrix.", HB_ERR_FUNCNAME, HB_ERR_ARGS_BASEPARAMS);
       return;
    }
 
-   HB_SIZE nColsW = hb_arrayLen(hb_arrayGetItemPtr(pW, 1));
-   HB_SIZE nColsDW = hb_arrayLen(hb_arrayGetItemPtr(pDW, 1));
+   nColsW = hb_arrayLen(hb_arrayGetItemPtr(pW, 1));
+   nColsDW = hb_arrayLen(hb_arrayGetItemPtr(pDW, 1));
    if ( nColsW != nColsDW )
    {
       hb_errRT_BASE(EG_ARG, 3012, "Mismatched column dimensions.", HB_ERR_FUNCNAME, HB_ERR_ARGS_BASEPARAMS);
@@ -1090,20 +1138,19 @@ HB_FUNC( HB_SGD_UPDATE )
    }
 
    // --- 3. Bucle de Actualización In-Situ ---
-   HB_SIZE i, j;
    for( i = 0; i < nRowsW; i++ )
    {
-      PHB_ITEM pRowW  = hb_arrayGetItemPtr(pW, i + 1);
-      PHB_ITEM pRowDW = hb_arrayGetItemPtr(pDW, i + 1);
+      pRowW = hb_arrayGetItemPtr(pW, i + 1);
+      pRowDW = hb_arrayGetItemPtr(pDW, i + 1);
 
       for( j = 0; j < nColsW; j++ )
       {
          // Obtener el peso y el gradiente actual
-         double current_weight = hb_arrayGetND(pRowW, j + 1);
-         double gradient = hb_arrayGetND(pRowDW, j + 1);
+         current_weight = hb_arrayGetND(pRowW, j + 1);
+         gradient = hb_arrayGetND(pRowDW, j + 1);
 
          // Aplicar la fórmula de SGD
-         double updated_weight = current_weight - lr * gradient;
+         updated_weight = current_weight - lr * gradient;
 
          // Actualizar el valor directamente en la matriz de pesos original
          hb_arraySetND(pRowW, j + 1, updated_weight);

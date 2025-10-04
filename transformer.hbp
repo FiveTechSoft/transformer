@@ -1,6 +1,8 @@
-sample1.prg
+sample2.prg
 transformer.prg
 matrixes.c
+
+{x86_64}-Ic:\harbour\include
 
 {x86_64}-lgdiplus
 {x86_64}-lole32

@@ -1,55 +1,7 @@
 /*
 * ========================================================================
-* EJEMPLO DIDÁCTICO: EMBEDDINGS DENSOS vs       // Learning rate scheduling: reducir cada 600 epochs
-      nCurrentLR := nLearningRate
-      IF i > 600
-         nCurrentLR := nLearningRate * 0.8
-      ENDIF
-      IF i > 1200
-         nCurrentLR := nLearningRate * 0.5
-      ENDIF
-      IF i > 1500
-         nCurrentLR := nLearningRate * 0.3
-      ENDIF
-      
-      // Entrenamiento por fases: enfocarse en diferentes colores
-      LOCAL nPhase := Int((i-1) / 600) + 1  // Fase 1, 2, 3
-      LOCAL aColorExamples := {}
-      
-      IF nPhase == 1
-         // Fase 1: Enfoque en GREEN (primeras 600 epochs)
-         FOR j := 1 TO Len(aTrainingData)
-            IF aTrainingData[j][2][7] == 10  // GREEN
-               AAdd(aColorExamples, aTrainingData[j])
-            ENDIF
-         NEXT
-         // Añadir algunos ejemplos de otros colores para diversidad
-         FOR j := 1 TO Len(aTrainingData)
-            IF aTrainingData[j][2][7] != 10 .AND. Len(aColorExamples) < 9
-               AAdd(aColorExamples, aTrainingData[j])
-            ENDIF
-         NEXT
-      ELSEIF nPhase == 2
-         // Fase 2: Enfoque en BLUE (epochs 601-1200)
-         FOR j := 1 TO Len(aTrainingData)
-            IF aTrainingData[j][2][7] == 9  // BLUE
-               AAdd(aColorExamples, aTrainingData[j])
-            ENDIF
-         NEXT
-         FOR j := 1 TO Len(aTrainingData)
-            IF aTrainingData[j][2][7] != 9 .AND. Len(aColorExamples) < 9
-               AAdd(aColorExamples, aTrainingData[j])
-            ENDIF
-         NEXT
-      ELSE
-         // Fase 3: Todos los colores balanceados (epochs 1201+)
-         aColorExamples := aTrainingData
-      ENDIF
-      
-      // Validación de seguridad: asegurar que siempre tenemos ejemplos
-      IF Len(aColorExamples) == 0
-         aColorExamples := aTrainingData
-      ENDIFarea: Question Answering sobre colores de objetos
+* EJEMPLO DIDÁCTICO: EMBEDDINGS DENSOS vs ONE-HOT
+* Área: Question Answering sobre colores de objetos
 * Vocabulario: 15 tokens (objetos, colores, palabras de pregunta)
 * Embeddings: Densos de dimensión 8 (aprenden relaciones semánticas)
 * ========================================================================
@@ -65,8 +17,8 @@ PROCEDURE Main()
    LOCAL nHiddenDim := 32
    LOCAL nHeadDim := 8
    LOCAL nLayers := 2
-   LOCAL nEpochs := 1800        // Más epochs con enfoque por colores
-   LOCAL nLearningRate := 0.001  // Learning rate más alto para mejor aprendizaje
+   LOCAL nEpochs := 2000        // Más epochs para mejor convergencia
+   LOCAL nLearningRate := 0.0005  // Learning rate reducido para estabilidad
    LOCAL oModel, i, j, k, l
    LOCAL mEmbeddings, mPositionalEncoding
    LOCAL aInput, aTarget, mInput, mTarget, mOutput
@@ -78,7 +30,10 @@ PROCEDURE Main()
    LOCAL nPredictedToken, nMaxProb, nXavierStd, nCurrentLR, nWeightDecay
    LOCAL nEntropyRegularization, nProb, nMomentum, nPhase, cPhaseDesc
    LOCAL mClassMomentumW, mClassMomentumB  // Momentum para clasificación
-   LOCAL aColorExamples
+   LOCAL aColorExamples, nAnswerPos, nRand, temp, nPhaseStep
+   LOCAL nExamplesPerColor, nGreenCount, nBlueCount, nYellowCount, nTargetColor, nAdded, nLimit, nRandTemp, tempSwap
+   LOCAL nTargetIdx, nTargetProb, nFocalWeight, nColorTokens, nClassWeight, nTotalProb, nColorProb, nConfidencePenalty, nCToken, nIsColor, nNonColorConfidence
+   LOCAL nTemp, mLogitsTemp, mProbabilitiesTemp, nLabelSmoothing, nSmoothLoss, nExpectedProb, nClassFreqWeight
    
    // --- VOCABULARIO EXPANDIDO (15 tokens) ---
    // Índices: 0=PAD, 1=WHAT, 2=COLOR, 3=IS, 4=THE, 
@@ -92,25 +47,26 @@ PROCEDURE Main()
    
    // --- DATASET ESTRATÉGICAMENTE BALANCEADO (18 ejemplos) ---
    // Alternando colores para evitar sobreajuste hacia un solo color
+   // IMPORTANTE: La respuesta SIEMPRE está en la posición 7 (índice 7 en la secuencia, posición 7 en el target)
    LOCAL aTrainingData := { ;
-      { {1,2,3,4,6,14,0,0}, {0,0,0,0,0,0,10,0} }, ; // "WHAT COLOR IS THE GRASS?" -> "GREEN" (empezar con GREEN)
-      { {1,2,3,4,5,14,0,0}, {0,0,0,0,0,0,9,0} },  ; // "WHAT COLOR IS THE SKY?" -> "BLUE"
-      { {1,2,3,4,7,14,0,0}, {0,0,0,0,0,0,11,0} }, ; // "WHAT COLOR IS THE SUN?" -> "YELLOW"
-      { {1,2,3,4,6,14,0,0}, {0,0,0,0,0,0,10,0} }, ; // "WHAT COLOR IS THE GRASS?" -> "GREEN"
-      { {1,2,3,4,8,14,0,0}, {0,0,0,0,0,0,9,0} },  ; // "WHAT COLOR IS THE OCEAN?" -> "BLUE"
-      { {1,2,3,4,7,14,0,0}, {0,0,0,0,0,0,11,0} }, ; // "WHAT COLOR IS THE SUN?" -> "YELLOW"
-      { {1,2,3,4,6,14,0,0}, {0,0,0,0,0,0,10,0} }, ; // "WHAT COLOR IS THE GRASS?" -> "GREEN"
-      { {1,2,3,4,5,14,0,0}, {0,0,0,0,0,0,9,0} },  ; // "WHAT COLOR IS THE SKY?" -> "BLUE"
-      { {1,2,3,4,7,14,0,0}, {0,0,0,0,0,0,11,0} }, ; // "WHAT COLOR IS THE SUN?" -> "YELLOW"
-      { {1,2,3,4,6,14,0,0}, {0,0,0,0,0,0,10,0} }, ; // "WHAT COLOR IS THE GRASS?" -> "GREEN"
-      { {1,2,3,4,8,14,0,0}, {0,0,0,0,0,0,9,0} },  ; // "WHAT COLOR IS THE OCEAN?" -> "BLUE"
-      { {1,2,3,4,7,14,0,0}, {0,0,0,0,0,0,11,0} }, ; // "WHAT COLOR IS THE SUN?" -> "YELLOW"
-      { {1,2,3,4,6,14,0,0}, {0,0,0,0,0,0,10,0} }, ; // "WHAT COLOR IS THE GRASS?" -> "GREEN"
-      { {1,2,3,4,5,14,0,0}, {0,0,0,0,0,0,9,0} },  ; // "WHAT COLOR IS THE SKY?" -> "BLUE"
-      { {1,2,3,4,7,14,0,0}, {0,0,0,0,0,0,11,0} }, ; // "WHAT COLOR IS THE SUN?" -> "YELLOW"
-      { {1,2,3,4,6,14,0,0}, {0,0,0,0,0,0,10,0} }, ; // "WHAT COLOR IS THE GRASS?" -> "GREEN"
-      { {1,2,3,4,8,14,0,0}, {0,0,0,0,0,0,9,0} },  ; // "WHAT COLOR IS THE OCEAN?" -> "BLUE"
-      { {1,2,3,4,7,14,0,0}, {0,0,0,0,0,0,11,0} }  ; // "WHAT COLOR IS THE SUN?" -> "YELLOW"
+      { {1,2,3,4,6,14,0,0}, {0,0,0,0,0,0,10,0} }, ; // "WHAT COLOR IS THE GRASS ?" -> "GREEN" (posición 7)
+      { {1,2,3,4,5,14,0,0}, {0,0,0,0,0,0,9,0} },  ; // "WHAT COLOR IS THE SKY ?" -> "BLUE" (posición 7)
+      { {1,2,3,4,7,14,0,0}, {0,0,0,0,0,0,11,0} }, ; // "WHAT COLOR IS THE SUN ?" -> "YELLOW" (posición 7)
+      { {1,2,3,4,6,14,0,0}, {0,0,0,0,0,0,10,0} }, ; // "WHAT COLOR IS THE GRASS ?" -> "GREEN" (posición 7)
+      { {1,2,3,4,8,14,0,0}, {0,0,0,0,0,0,9,0} },  ; // "WHAT COLOR IS THE OCEAN ?" -> "BLUE" (posición 7)
+      { {1,2,3,4,7,14,0,0}, {0,0,0,0,0,0,11,0} }, ; // "WHAT COLOR IS THE SUN ?" -> "YELLOW" (posición 7)
+      { {1,2,3,4,6,14,0,0}, {0,0,0,0,0,0,10,0} }, ; // "WHAT COLOR IS THE GRASS ?" -> "GREEN" (posición 7)
+      { {1,2,3,4,5,14,0,0}, {0,0,0,0,0,0,9,0} },  ; // "WHAT COLOR IS THE SKY ?" -> "BLUE" (posición 7)
+      { {1,2,3,4,7,14,0,0}, {0,0,0,0,0,0,11,0} }, ; // "WHAT COLOR IS THE SUN ?" -> "YELLOW" (posición 7)
+      { {1,2,3,4,6,14,0,0}, {0,0,0,0,0,0,10,0} }, ; // "WHAT COLOR IS THE GRASS ?" -> "GREEN" (posición 7)
+      { {1,2,3,4,8,14,0,0}, {0,0,0,0,0,0,9,0} },  ; // "WHAT COLOR IS THE OCEAN ?" -> "BLUE" (posición 7)
+      { {1,2,3,4,7,14,0,0}, {0,0,0,0,0,0,11,0} }, ; // "WHAT COLOR IS THE SUN ?" -> "YELLOW" (posición 7)
+      { {1,2,3,4,6,14,0,0}, {0,0,0,0,0,0,10,0} }, ; // "WHAT COLOR IS THE GRASS ?" -> "GREEN" (posición 7)
+      { {1,2,3,4,5,14,0,0}, {0,0,0,0,0,0,9,0} },  ; // "WHAT COLOR IS THE SKY ?" -> "BLUE" (posición 7)
+      { {1,2,3,4,7,14,0,0}, {0,0,0,0,0,0,11,0} }, ; // "WHAT COLOR IS THE SUN ?" -> "YELLOW" (posición 7)
+      { {1,2,3,4,6,14,0,0}, {0,0,0,0,0,0,10,0} }, ; // "WHAT COLOR IS THE GRASS ?" -> "GREEN" (posición 7)
+      { {1,2,3,4,8,14,0,0}, {0,0,0,0,0,0,9,0} },  ; // "WHAT COLOR IS THE OCEAN ?" -> "BLUE" (posición 7)
+      { {1,2,3,4,7,14,0,0}, {0,0,0,0,0,0,11,0} }  ; // "WHAT COLOR IS THE SUN ?" -> "YELLOW" (posición 7)
    }
    
    LOCAL nSeqLen := 8
@@ -147,13 +103,9 @@ PROCEDURE Main()
    
    // Crear capa de clasificación con mejor inicialización (Xavier/Glorot)
    nXavierStd := Sqrt(2.0 / (nEmbedDim + nVocabSize))
-   mClassificationWeights := CreateDenseEmbeddings(nEmbedDim, nVocabSize)
+   mClassificationWeights := HB_MATRIXRANDOM(nEmbedDim, nVocabSize)
    // Reescalar con Xavier initialization
-   FOR i := 1 TO nEmbedDim
-      FOR j := 1 TO nVocabSize
-         mClassificationWeights[i][j] *= nXavierStd
-      NEXT
-   NEXT
+   mClassificationWeights := HB_MATRIXMULSCALAR(mClassificationWeights, nXavierStd)
    mClassificationBias := HB_MATRIXZERO(1, nVocabSize)
    
    // Inicializar momentum para capa de clasificación
@@ -167,19 +119,58 @@ PROCEDURE Main()
    FOR i := 1 TO nEpochs
       nTotalLoss := 0
       
-      // Learning rate scheduling: reducir gradualmente
+      // Learning rate scheduling: reducir progresivamente pero más lentamente para mejor aprendizaje
       nCurrentLR := nLearningRate
-      IF i > 400
-         nCurrentLR := nLearningRate * 0.8
+      IF i > 700
+         nCurrentLR := nLearningRate * 0.8  // Más lenta la reducción
       ENDIF
-      IF i > 800
-         nCurrentLR := nLearningRate * 0.5
+      IF i > 1200
+         nCurrentLR := nLearningRate * 0.6
+      ENDIF
+      IF i > 1600
+         nCurrentLR := nLearningRate * 0.4  // Más lenta después de la fase intensiva de BLUE
+      ENDIF
+      IF i > 1900
+         nCurrentLR := nLearningRate * 0.2
       ENDIF
       
-      // Entrenar con cada ejemplo del dataset
+      // Entrenamiento por fases: dos fases principales para mejor balance
+      nPhaseStep := 1200  // Cambio de fase en la mitad del entrenamiento
+      nPhase := Int((i-1) / nPhaseStep) + 1
+      IF nPhase > 2
+         nPhase := 3  // Última fase para refinamiento
+      ENDIF
+      aColorExamples := {}
+      
+      // Usar todos los ejemplos en cada época para asegurar balance
       FOR j := 1 TO Len(aTrainingData)
-         aInput := aTrainingData[j][1]
-         aTarget := aTrainingData[j][2]
+         AAdd(aColorExamples, aTrainingData[j])
+      NEXT
+      // Barajar los ejemplos para evitar sesgos de orden
+      FOR j := Len(aColorExamples) TO 2 STEP -1
+         nRandTemp := Int(hb_Random() * j) + 1
+         tempSwap := aColorExamples[j]
+         aColorExamples[j] := aColorExamples[nRandTemp]
+         aColorExamples[nRandTemp] := tempSwap
+      NEXT
+      
+      // Validación de seguridad: asegurar que siempre tenemos ejemplos
+      IF Len(aColorExamples) == 0
+         aColorExamples := aTrainingData
+      ENDIF
+      
+      // Barajar los ejemplos para evitar sesgo de orden
+      FOR j := Len(aColorExamples) TO 2 STEP -1
+         nRand := Int(hb_Random() * j) + 1
+         temp := aColorExamples[j]
+         aColorExamples[j] := aColorExamples[nRand]
+         aColorExamples[nRand] := temp
+      NEXT
+      
+      // Entrenar con cada ejemplo del dataset
+      FOR j := 1 TO Len(aColorExamples)
+         aInput := aColorExamples[j][1]
+         aTarget := aColorExamples[j][2]
          
          // Convertir tokens a embeddings
          mInput := CreateMatrixFromTokens(aInput, mEmbeddings)
@@ -192,24 +183,37 @@ PROCEDURE Main()
          oModel:ZeroGrads()
          mTransformerOutput := oModel:Forward(mInput)
          
-         // Aplicar capa de clasificación solo en la posición 7 (respuesta)
-         mResponseVector := {mTransformerOutput[7]}  // Solo la posición de respuesta
+         // Siempre usar la posición 7 para la respuesta como se define en el dataset
+         nAnswerPos := 7
+         
+         // Aplicar capa de clasificación en la posición de la respuesta
+         mResponseVector := {mTransformerOutput[nAnswerPos]}  // Solo la posición de respuesta
          mLogits := HB_MATRIXMULTIPLY(mResponseVector, mClassificationWeights)
          mLogits := HB_MATRIXADDBROADCAST(mLogits, mClassificationBias)
          mProbabilities := HB_SOFTMAX(mLogits)
          
          // El target es el índice del token correcto
-         nTargetToken := aTarget[7]
+         nTargetToken := aTarget[nAnswerPos]
+         
+         // Añadir debugging para ver qué posiciones están seleccionadas
+         IF i <= 10 .AND. j == 1  // Mostrar para las primeras épocas
+            ? "  DEBUG: nAnswerPos =", nAnswerPos, "Target token =", nTargetToken, "(", aVocab[nTargetToken+1], ")"
+         ENDIF
          
          IF Empty(mProbabilities)
             ? "ERROR: Forward pass falló en época", i
             QUIT
          ENDIF
          
-         // Calcular cross-entropy loss con regularización de entropía
-         nLoss := -Log(mProbabilities[1][nTargetToken + 1])  // Cross-entropy básico
+         // Calcular cross-entropy loss simple y estable
+         nTargetIdx := nTargetToken + 1  // Harbour arrays are 1-indexed
+         nTargetProb := mProbabilities[1][nTargetIdx]
+         IF nTargetProb < 0.0001
+            nTargetProb := 0.0001  // Clipping para evitar log(0)
+         ENDIF
+         nLoss := -Log(nTargetProb)  // Cross-entropy básico con clipping
          
-         // Añadir regularización de entropía para forzar diversidad
+         // Very mild entropy regularization to maintain some diversity without affecting stability
          nEntropyRegularization := 0.0
          FOR k := 1 TO nVocabSize
             nProb := mProbabilities[1][k]
@@ -217,8 +221,8 @@ PROCEDURE Main()
                nEntropyRegularization -= nProb * Log(nProb)
             ENDIF
          NEXT
-         // Factor de entropía: penalizar cuando todas las probabilidades son similares
-         nLoss := nLoss - 0.05 * nEntropyRegularization  // Reducir factor de entropía
+         // Very small entropy contribution to maintain stability
+         nLoss := nLoss - 0.001 * nEntropyRegularization
          
          // Backward pass - gradiente de cross-entropy
          mProbGradient := HB_MATRIXCLONE(mProbabilities)
@@ -227,9 +231,9 @@ PROCEDURE Main()
          // Backward a través de la capa de clasificación
          mResponseGradient := HB_MATRIXMULTIPLY(mProbGradient, HB_MATRIXTRANSPOSE(mClassificationWeights))
          
-         // Crear gradiente completo para el transformer (ceros excepto posición 7)
+         // Crear gradiente completo para el transformer (ceros excepto posición de respuesta)
          dLoss := HB_MATRIXZERO(nSeqLen, nEmbedDim)
-         dLoss[7] := mResponseGradient[1]  // Solo la posición de respuesta tiene gradiente
+         dLoss[nAnswerPos] := mResponseGradient[1]  // Solo la posición de respuesta tiene gradiente
          
          // DEBUG: mostrar información del output de la posición relevante
          IF i <= 10 .AND. j == 1  // Más épocas de debug
@@ -275,19 +279,22 @@ PROCEDURE Main()
          mClassificationWeights := HB_MATRIXSUB(mClassificationWeights, mClassMomentumW)
          mClassificationBias := HB_MATRIXSUB(mClassificationBias, mClassMomentumB)
          
+         // Aplicar diversificación de embeddings cada ciertas épocas para ayudar a diferenciar colores
+         IF i % 50 == 0  // Aplicar cada 50 épocas
+            EncourageEmbeddingDiversity(mEmbeddings, nCurrentLR)
+         ENDIF
+         
          nTotalLoss += nLoss
       NEXT
       
       nTotalLoss := nTotalLoss / Len(aColorExamples)
       
-      IF i % 200 == 0 .OR. i <= 10 .OR. i == 600 .OR. i == 1200
+      IF i % 400 == 0 .OR. i <= 10 .OR. i == 1200
          cPhaseDesc := ""
-         IF nPhase == 1
-            cPhaseDesc := " (FASE GREEN)"
-         ELSEIF nPhase == 2
-            cPhaseDesc := " (FASE BLUE)"
+         IF nPhase <= 2
+            cPhaseDesc := " (FASE EQUILIBRADA)"
          ELSE
-            cPhaseDesc := " (FASE TODOS)"
+            cPhaseDesc := " (FASE REFINAMIENTO)"
          ENDIF
          ? "Época", PadR(Str(i,5),6), "-> Loss promedio:", ;
            Transform(nTotalLoss, "@E 9.999999"), "LR:", Transform(nCurrentLR, "@E 9.9999"), cPhaseDesc
@@ -312,8 +319,21 @@ PROCEDURE Main()
       
       mTransformerOutput := oModel:Forward(mInput)
       
-      // Aplicar capa de clasificación para obtener probabilidades
-      mResponseVector := {mTransformerOutput[7]}
+      // Encontrar la posición que contiene la respuesta (no siempre la 7)
+      nAnswerPos := 0
+      FOR k := 5 TO 7  // Buscar en posiciones 5-7 donde podría estar la respuesta
+         IF aTarget[k] != 0 .AND. aTarget[k] != 14  // No es padding ni ? 
+            nAnswerPos := k
+            EXIT
+         ENDIF
+      NEXT
+      
+      IF nAnswerPos == 0
+         nAnswerPos := 7  // Fallback a posición 7
+      ENDIF
+      
+      // Aplicar capa de clasificación para obtener probabilidades en la posición correcta
+      mResponseVector := {mTransformerOutput[nAnswerPos]}
       mLogits := HB_MATRIXMULTIPLY(mResponseVector, mClassificationWeights)
       mLogits := HB_MATRIXADDBROADCAST(mLogits, mClassificationBias)
       mProbabilities := HB_SOFTMAX(mLogits)
@@ -330,10 +350,10 @@ PROCEDURE Main()
       
       ? "Pregunta " + Str(j,1) + ":"
       ? "  Input:      ", TokensToWords(aInput, aVocab)
-      ? "  Target:     ", aVocab[aTarget[7] + 1]  // Solo la respuesta (posición 7)
+      ? "  Target:     ", aVocab[aTarget[nAnswerPos] + 1]  // Solo la respuesta (posición correcta)
       ? "  Predicción: ", aVocab[nPredictedToken + 1], "(prob:", Transform(nMaxProb, "@E 9.99"), ")"
       
-      IF aTarget[7] == nPredictedToken
+      IF aTarget[nAnswerPos] == nPredictedToken
          ? "  ✓ CORRECTO"
       ELSE
          ? "  ✗ INCORRECTO"
@@ -366,6 +386,39 @@ RETURN
 * FUNCIONES PARA EMBEDDINGS DENSOS
 * =======================================================================
 */
+
+/* 
+* Función para añadir separación entre embeddings de colores para evitar colapso
+*/
+STATIC FUNCTION EncourageEmbeddingDiversity(mEmbeddings, nLR)
+   LOCAL nColorTokens := {9, 10, 11}  // BLUE, GREEN, YELLOW - the color tokens to keep distinct
+   LOCAL i, j, k
+   LOCAL aVec1, aVec2, nDist, nGrad, nStrength := 0.01  // Small regularization strength
+   
+   // Aumentar la distancia entre los embeddings de colores para evitar confusión
+   FOR i := 1 TO Len(nColorTokens)-1
+      aVec1 := mEmbeddings[nColorTokens[i] + 1]  // +1 because Harbour arrays start at 1
+      FOR j := i+1 TO Len(nColorTokens)
+         aVec2 := mEmbeddings[nColorTokens[j] + 1]
+         
+         // Calcular la distancia entre embeddings de colores
+         nDist := 0
+         FOR k := 1 TO Len(aVec1)
+            nDist += (aVec1[k] - aVec2[k])^2
+         NEXT
+         nDist := Sqrt(nDist)
+         
+         // Si están demasiado cerca, aplicar fuerza de separación
+         IF nDist < 0.5  // Umbral arbitrario, si están muy cerca
+            FOR k := 1 TO Len(aVec1)
+               nGrad := nStrength * (aVec1[k] - aVec2[k])
+               mEmbeddings[nColorTokens[i] + 1][k] += nLR * nGrad
+               mEmbeddings[nColorTokens[j] + 1][k] -= nLR * nGrad
+            NEXT
+         ENDIF
+      NEXT
+   NEXT
+RETURN NIL
 
 /*
 * Crea embeddings densos con inicialización Gaussiana N(0, 0.02)
