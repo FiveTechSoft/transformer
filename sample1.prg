@@ -23,7 +23,7 @@ PROCEDURE Main()
    LOCAL nEmbedDim := 25  // Aumentado para más capacidad
    LOCAL nHiddenDim := 100
    LOCAL nHeadDim := 25     // Debe coincidir con nEmbedDim para suma residual
-   LOCAL nEpochs := 5000
+   LOCAL nEpochs := 100
    LOCAL nLearningRate := 0.0005
    LOCAL oModel, mEmbeddings, mInput, mTarget, mOutput, nLoss, dLoss, i
    LOCAL nMinLoss := 999999, nEpochMinLoss := 0, nEpochsSinceMin := 0
