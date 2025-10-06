@@ -205,6 +205,8 @@ RETURN Nil
 */
 CLASS TransformerModel
    DATA aEncoderBlocks, nLayers, oOutputProj, oOutputProjGrad, mLastBlockOutput
+   DATA oOutputProj_m, oOutputProj_v, nTimeStep
+   DATA oEmbeddings, oEmbeddingsGrad, oEmbeddings_m, oEmbeddings_v, nVocabSize, nEmbedDim
    METHOD New( nLayers, nInputDim, nHiddenDim, nHeadDim, nVocabSize ) CONSTRUCTOR
    METHOD Forward( mInput )
    METHOD Backward( mDOutput )
@@ -215,14 +217,36 @@ ENDCLASS
 METHOD New( nLayers, nInputDim, nHiddenDim, nHeadDim, nVocabSize ) CLASS TransformerModel
    LOCAL i
    ::nLayers := nLayers
+   ::nVocabSize := nVocabSize
+   ::nEmbedDim := nInputDim  // Assuming embed dim == input dim
    ::aEncoderBlocks := {}
    FOR i := 1 TO nLayers
       AAdd( ::aEncoderBlocks, TransformerEncoderBlock():New( nInputDim, nHiddenDim, nHeadDim ) )
    NEXT
    ::oOutputProj := HB_MATRIXRANDOM( nInputDim, nVocabSize )
    ::oOutputProjGrad := HB_MATRIXZERO( nInputDim, nVocabSize )
+   ::oOutputProj_m := HB_MATRIXZERO( nInputDim, nVocabSize )
+   ::oOutputProj_v := HB_MATRIXZERO( nInputDim, nVocabSize )
+   ::oEmbeddings := HB_MATRIXRANDOM( nVocabSize, nInputDim )
+   ::oEmbeddingsGrad := HB_MATRIXZERO( nVocabSize, nInputDim )
+   ::oEmbeddings_m := HB_MATRIXZERO( nVocabSize, nInputDim )
+   ::oEmbeddings_v := HB_MATRIXZERO( nVocabSize, nInputDim )
    ::mLastBlockOutput := Nil
+   ::nTimeStep := 0
 RETURN Self
+
+METHOD ZeroGrads() CLASS TransformerModel
+   AEval( ::aEncoderBlocks, {|oBlock| oBlock:ZeroGrads()} )
+   ::oOutputProjGrad := HB_MATRIXZERO( Len(::oOutputProjGrad), Len(::oOutputProjGrad[1]) )
+   ::oEmbeddingsGrad := HB_MATRIXZERO( ::nVocabSize, ::nEmbedDim )
+RETURN Nil
+
+METHOD Update( nLr ) CLASS TransformerModel
+   AEval( ::aEncoderBlocks, {|oBlock| oBlock:Update(nLr)} )
+   ::nTimeStep++
+   HB_ADAMUPDATE( ::oOutputProj, ::oOutputProjGrad, ::oOutputProj_m, ::oOutputProj_v, ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
+   HB_ADAMUPDATE( ::oEmbeddings, ::oEmbeddingsGrad, ::oEmbeddings_m, ::oEmbeddings_v, ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
+RETURN Nil
 
 METHOD Forward( mInput ) CLASS TransformerModel
    LOCAL mLastBlockOutput
@@ -242,16 +266,6 @@ METHOD Backward( mDOutput ) CLASS TransformerModel
       mDOutput := ::aEncoderBlocks[i]:Backward( mDOutput )
    NEXT
 RETURN mDOutput
-
-METHOD ZeroGrads() CLASS TransformerModel
-   AEval( ::aEncoderBlocks, {|oBlock| oBlock:ZeroGrads()} )
-   ::oOutputProjGrad := HB_MATRIXZERO( Len(::oOutputProjGrad), Len(::oOutputProjGrad[1]) )
-RETURN Nil
-
-METHOD Update( nLr ) CLASS TransformerModel
-   AEval( ::aEncoderBlocks, {|oBlock| oBlock:Update(nLr)} )
-   ::oOutputProj := HB_MATRIXSUB( ::oOutputProj, HB_MATRIXMULSCALAR( ::oOutputProjGrad, nLr ) )
-RETURN Nil
 
 // ========================================================================
 // SECCIÓN DE FUNCIONES AUXILIARES
