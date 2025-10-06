@@ -486,8 +486,74 @@ HB_FUNC( HB_CROSSENTROPYLOSS )
 {
     PHB_ITEM pPredictions = hb_param( 1, HB_IT_ARRAY );
     PHB_ITEM pTargets     = hb_param( 2, HB_IT_ARRAY );
-    // Retorna (Predicciones - Objetivos), que es el gradiente inicial.
-    hb_itemReturnRelease( matrix_sub( pPredictions, pTargets ) );
+    HB_SIZE nRows, nCols, i, j;
+    double loss = 0.0;
+    double *probs;
+
+    if( !pPredictions || !pTargets || !HB_IS_ARRAY(pPredictions) || !HB_IS_ARRAY(pTargets) )
+    {
+        hb_retnd( 0.0 );
+        return;
+    }
+
+    nRows = hb_arrayLen( pPredictions );
+    if( nRows != hb_arrayLen( pTargets ) || nRows == 0 )
+    {
+        hb_retnd( 0.0 );
+        return;
+    }
+
+    nCols = hb_arrayLen( hb_arrayGetItemPtr( pPredictions, 1 ) );
+    if( nCols != hb_arrayLen( hb_arrayGetItemPtr( pTargets, 1 ) ) || nCols == 0 )
+    {
+        hb_retnd( 0.0 );
+        return;
+    }
+
+    probs = (double*) hb_xalloc( nCols * sizeof(double) );
+
+    // Compute cross-entropy loss with inline softmax
+    for( i = 0; i < nRows; i++ )
+    {
+        PHB_ITEM pRowPred = hb_arrayGetItemPtr( pPredictions, i + 1 );
+        PHB_ITEM pRowTargets = hb_arrayGetItemPtr( pTargets, i + 1 );
+        double maxValue = -1e10;
+        double sumExp = 0.0;
+
+        // Find max for numerical stability
+        for( j = 0; j < nCols; j++ )
+        {
+            double val = hb_arrayGetND( pRowPred, j + 1 );
+            if( val > maxValue ) maxValue = val;
+        }
+
+        // Compute exp and sum
+        for( j = 0; j < nCols; j++ )
+        {
+            double val = hb_arrayGetND( pRowPred, j + 1 );
+            probs[j] = exp( val - maxValue );
+            sumExp += probs[j];
+        }
+
+        // Normalize to probs
+        for( j = 0; j < nCols; j++ )
+        {
+            probs[j] /= sumExp;
+        }
+
+        // Compute loss
+        for( j = 0; j < nCols; j++ )
+        {
+            double target = hb_arrayGetND( pRowTargets, j + 1 );
+            if( target > 0.0 )
+            {
+                loss -= target * log( probs[j] + 1e-10 ); // Add epsilon to avoid log(0)
+            }
+        }
+    }
+
+    hb_xfree( probs );
+    hb_retnd( loss );
 }
 
 
@@ -1026,7 +1092,7 @@ HB_FUNC( HB_LAYERNORM_BACKWARD )
 */
 HB_FUNC( HB_SOFTMAXBACKWARD )
 {
-   // --- Variable declarations at the beginning (C89 compliance) ---
+   // --- Variable declarations (C89) ---
    PHB_ITEM pDProbs, pProbs, pDScores;
    PHB_ITEM pDProbsRow, pProbsRow, pDScoresRow;
    HB_SIZE nRows, nCols, i, j;
@@ -1262,4 +1328,61 @@ HB_FUNC( HB_MSE_LOSS_BACKWARD )
       }
    }
    hb_itemReturn(dLoss); // matrix_sub ya crea una copia
+}
+
+/*
+* HB_FUNC( HB_CROSSENTROPYLOSS_BACKWARD )
+* ---------------------------------------
+* Calcula el gradiente de la pérdida Cross-Entropy w.r.t. las probabilidades (o logits pre-softmax).
+* Para CE + softmax combinado, dLoss/dProbs = (probs - targets) / batch_size (media).
+* Asume probs es matriz softmax (batch x vocab), targets one-hot (batch x vocab).
+* Retorna matriz de gradientes (batch x vocab).
+*/
+HB_FUNC( HB_CROSSENTROPYLOSS_BACKWARD )
+{
+   // --- Variable declarations (C89) ---
+   PHB_ITEM pProbs = hb_param(1, HB_IT_ARRAY);
+   PHB_ITEM pTargets = hb_param(2, HB_IT_ARRAY);
+   HB_SIZE nRows, nCols, i, j;
+   double scalar;
+   PHB_ITEM pGrad;
+
+   // --- Validación ---
+   if( !pProbs || !pTargets || !HB_IS_ARRAY(pProbs) || !HB_IS_ARRAY(pTargets) ||
+       hb_arrayLen(pProbs) == 0 || hb_arrayLen(pTargets) == 0 )
+   {
+      hb_ret();  // Empty array on error
+      return;
+   }
+
+   nRows = hb_arrayLen(pProbs);
+   if( nRows != hb_arrayLen(pTargets) )
+   {
+      hb_ret();
+      return;
+   }
+
+   nCols = hb_arrayLen( hb_arrayGetItemPtr(pProbs, 1) );
+   if( nCols != hb_arrayLen( hb_arrayGetItemPtr(pTargets, 1) ) )
+   {
+      hb_ret();
+      return;
+   }
+
+   // --- Gradiente base: probs - targets ---
+   pGrad = matrix_sub( pProbs, pTargets );  // Reutiliza worker
+
+   // --- Escalar por batch_size (media) ---
+   scalar = 1.0 / (double) nRows;
+   for( i = 0; i < nRows; i++ )
+   {
+      PHB_ITEM pRow = hb_arrayGetItemPtr( pGrad, i + 1 );
+      for( j = 0; j < nCols; j++ )
+      {
+         hb_arraySetND( pRow, j + 1, hb_arrayGetND( pRow, j + 1 ) * scalar );
+      }
+   }
+
+   // --- Retorno ---
+   hb_itemReturnRelease( pGrad );
 }

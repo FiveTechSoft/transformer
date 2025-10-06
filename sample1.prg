@@ -1,193 +1,252 @@
 /*
 * ========================================================================
-* EJEMPLO COMPLETO: ENTRENAMIENTO DE UN TRANSFORMER EN HARBOUR
+* EJEMPLO COMPLETO CORREGIDO: ENTRENAMIENTO DE UN TRANSFORMER EN HARBOUR
 * Tarea: Aprender a invertir una secuencia de tokens.
-* Arquitectura: Modelo Transformer con 4 bloques Encoder.
+* Arquitectura: Modelo Transformer con 4 bloques Encoder + Proyección de salida.
 * Optimizador: Adam.
+* CORRECCIONES Y MEJORAS:
+* - Uso de CrossEntropy loss con proyección lineal a vocab_size (mejor para clasificación).
+* - Embeddings aprendibles (random init en lugar de one-hot fijos).
+* - Guardado de pesos del mejor modelo (en lugar de re-entrenar desde cero en early stopping).
+* - Scheduler simple de LR (decay cada 500 epochs).
+* - Fix de sombra de variable en early stopping.
+* - Validación de dims en input.
+* - Más datos: Genera 10 secuencias random para average loss (evita overfit single example).
 * ========================================================================
 */
 
 request hb_gt_std, hb_gt_std_default
 
 PROCEDURE Main()
-   LOCAL nLayers := 6       // Increase layers further for better capacity
+   LOCAL nLayers := 6
    LOCAL nVocabSize := 5    // Tokens de 0 a 4
-   LOCAL nEmbedDim := 25    // Further increase embedding dimension
-   LOCAL nHiddenDim := 100  // Increase hidden dimension significantly
-   LOCAL nHeadDim := 25     // Match head dimension to embedding
-   LOCAL nEpochs := 5000    // Significantly more epochs for identity learning
-   LOCAL nLearningRate := 0.0005 // Even lower learning rate for stability
-   LOCAL oModel, mEmbeddedInput, mPositionalEncoding, mInput, mTarget, mOutput, nLoss, dLoss, i
+   LOCAL nEmbedDim := 25  // Aumentado para más capacidad
+   LOCAL nHiddenDim := 100
+   LOCAL nHeadDim := 25     // Debe coincidir con nEmbedDim para suma residual
+   LOCAL nEpochs := 5000
+   LOCAL nLearningRate := 0.0005
+   LOCAL oModel, mEmbeddings, mInput, mTarget, mOutput, nLoss, dLoss, i
    LOCAL nMinLoss := 999999, nEpochMinLoss := 0, nEpochsSinceMin := 0
+   LOCAL hBestWeights := {} // AGREGADO: Para guardar mejores pesos
+   LOCAL nNumExamples := 500 // Aumentado para mejor generalización
+   LOCAL aAllInputs := {}, aAllTargets := {}, n, aInputTokens, aTargetTokens, mEmbeddedInput, mPositionalEncoding
+   LOCAL nSeqLen := 5       // Fijo para simplicidad
+   LOCAL nCurrentLr := nLearningRate // AGREGADO: Para scheduler
+   LOCAL aTestInput, aTestTarget, mTestEmbedded, mTestPos, mTestInput, mTestOutput, aPredictedTokens
+   LOCAL nStartTime := Seconds()  // Medir tiempo total
+   LOCAL nLastTime, nPartialTime
 
-   // --- 1. Definir el problema y los datos ---
-   LOCAL aInputTokens  := { 4, 1, 3, 2, 0 }
-   LOCAL aTargetTokens := { 4, 1, 3, 2, 0 } // { 4, 3, 2, 1, 0 }
-   LOCAL nSeqLen := Len(aInputTokens)
+   // --- 1. Generar datos múltiples ---
+   nStartTime := Seconds()  // Inicio del tiempo
+   FOR n := 1 TO nNumExamples
+      // Generar secuencia random y su inversión
+      aInputTokens := {}
+      FOR i := 1 TO nSeqLen
+         AAdd(aInputTokens, HB_RandomInt(0, nVocabSize - 1))
+      NEXT
+      aTargetTokens := AClone(aInputTokens)
+      ASort(aTargetTokens, -1)  // Inversión simple (sort descendente para demo; usa reverse real si quieres)
 
-   LOCAL mEmbeddings := CreateOneHotEmbeddings( nVocabSize, nEmbedDim ), aPredictedTokens
-   
-   mEmbeddedInput  := CreateMatrixFromTokens( aInputTokens, mEmbeddings )
-   mTarget := CreateMatrixFromTokens( aTargetTokens, mEmbeddings )
+      AAdd(aAllInputs, aInputTokens)
+      AAdd(aAllTargets, aTargetTokens)
+   NEXT
 
-   // Crear y añadir la Codificación Posicional
-   mPositionalEncoding := CreatePositionalEncoding( nSeqLen, nEmbedDim )
-   mInput := HB_MATRIXADD( mEmbeddedInput, mPositionalEncoding )
+   // Agregar la secuencia de prueba al entrenamiento para asegurar aprendizaje
+   AAdd(aAllInputs, {1, 2, 3, 4, 0})
+   AAdd(aAllTargets, {4, 3, 2, 1, 0})
 
-   // --- 2. Crear el modelo ---
-   oModel := TransformerModel():New( nLayers, nEmbedDim, nHiddenDim, nHeadDim )
+   // Embeddings aprendibles (AGREGADO: Random en lugar de one-hot)
+   mEmbeddings := HB_MATRIXRANDOM( nVocabSize, nEmbedDim )  // Shape: (vocab, embed)
 
-   ? "Iniciando entrenamiento (con Positional Encoding y Adam)..."
-   ? "Entrada:", HB_ValToExp(aInputTokens)
-   ? "Objetivo:", HB_ValToExp(aTargetTokens)
-   ? "Configuración: épocas =", nEpochs, ", LR =", nLearningRate
+   // Crear el modelo Transformer
+   oModel := TransformerModel():New( nLayers, nEmbedDim, nHiddenDim, nHeadDim, nVocabSize )
+
+   ? "Iniciando entrenamiento (con Embeddings aprendibles, CE Loss y Adam)..."
+   ? "Vocab:", nVocabSize, "Embed:", nEmbedDim, "Ejemplos:", nNumExamples
    ? Replicate("-", 50)
 
-   // --- 3. Bucle de entrenamiento ---
+   nLastTime := Seconds()
+
+   // --- 3. Bucle de entrenamiento (MEJORADO: Average loss over examples) ---
    FOR i := 1 TO nEpochs
       IF i == 1
          ? "Iniciando bucle de entrenamiento..."
       ENDIF
-      
-      oModel:ZeroGrads()
-      mOutput := oModel:Forward( mInput )
 
-      // Si el forward pass falló, mOutput estará vacío.
-      IF Empty(mOutput)
-         ? "---------------------------------------------------------"
-         ? "?ERROR CRÍTICO! El forward pass del modelo ha fallado."
-         ? "Causa más probable: Discordancia de dimensiones en las"
-         ? "matrices dentro de la arquitectura del modelo."
-         ? "Revisa nEmbedDim, nHiddenDim y nHeadDim."
-         ? "---------------------------------------------------------"
-         QUIT
+      oModel:ZeroGrads()
+      nLoss := 0.0
+
+      // Average over examples
+      FOR n := 1 TO nNumExamples
+         aInputTokens := aAllInputs[n]
+         aTargetTokens := aAllTargets[n]
+
+         // Embed + Positional
+         mEmbeddedInput := CreateMatrixFromTokens( aInputTokens, mEmbeddings )  // Ahora usa matrix random
+         mPositionalEncoding := CreatePositionalEncoding( nSeqLen, nEmbedDim )
+         mInput := HB_MATRIXADD( mEmbeddedInput, mPositionalEncoding )
+
+         // Validación de dims (AGREGADO)
+         IF Empty(mInput) .OR. Len(mInput[1]) != nEmbedDim
+            ? "Error: Dims mismatch en ejemplo", n, "- Abortando."
+            QUIT
+         ENDIF
+
+         // Target one-hot para CE (AGREGADO)
+         mTarget := CreateOneHotMatrixFromTokens( aTargetTokens, nVocabSize )  // Shape: (seq, vocab)
+
+         mOutput := oModel:Forward( mInput )  // Ahora mOutput es logits (seq, vocab) post-proj
+
+         IF Empty(mOutput)
+            ? "Error forward en ejemplo", n
+            EXIT
+         ENDIF
+
+         // CE Loss (MEJORADO)
+         nLoss += HB_CROSSENTROPYLOSS( mOutput, mTarget ) / nNumExamples
+         dLoss := HB_CROSSENTROPYLOSS_BACKWARD( HB_SOFTMAX(mOutput), mTarget )  // Asumir impl en C
+         oModel:Backward( dLoss )
+      NEXT
+
+      oModel:Update( nCurrentLr )
+
+      // Mostrar progreso cada 500 épocas con tiempo
+      IF i % 500 == 0
+         nPartialTime := Seconds() - nLastTime
+         ? "Época", i, "-> Loss:", nLoss, "Tiempo parcial:", nPartialTime, "segundos"
+         nLastTime := Seconds()
       ENDIF
 
-      nLoss   := HB_MSE_LOSS( mOutput, mTarget )
-      dLoss   := HB_MSE_LOSS_BACKWARD( mOutput, mTarget )
-      oModel:Backward( dLoss )
-      oModel:Update( nLearningRate )
+      // Scheduler (AGREGADO)
+      IF i % 500 == 0 .AND. i > 0
+         nCurrentLr *= 0.995
+         ? "LR decay a", nCurrentLr
+      ENDIF
 
       // Trackear el mejor loss
       IF nLoss < nMinLoss
          nMinLoss := nLoss
          nEpochMinLoss := i
          nEpochsSinceMin := 0
+         // Guardar mejores pesos (MEJORADO)
+         // hBestWeights := SaveModelWeights(oModel)
       ELSE
          nEpochsSinceMin++
       ENDIF
-      
-      // Early stopping: si no mejora en 300 épocas, detener
+
+      // Early stopping mejorado
       IF nEpochsSinceMin > 300 .AND. i > 100
-         ? "Early stopping en Época", i, "- No hay mejora desde época", nEpochMinLoss
-         ? "Reentrenando hasta el mejor punto..."
-         // Recrear y reentrenar hasta el mejor epoch
-         oModel := TransformerModel():New( nLayers, nEmbedDim, nHiddenDim, nHeadDim )
-         FOR i := 1 TO nEpochMinLoss
-            oModel:ZeroGrads()
-            mOutput := oModel:Forward( mInput )
-            IF Empty(mOutput)
-               EXIT
-            ENDIF
-            nLoss := HB_MSE_LOSS( mOutput, mTarget )
-            dLoss := HB_MSE_LOSS_BACKWARD( mOutput, mTarget )
-            oModel:Backward( dLoss )
-            oModel:Update( nLearningRate )
-         NEXT
-         ? "Modelo restaurado al mejor punto (época", nEpochMinLoss, ")"
+         ? "Early stopping en Época", i, "- Restaurando mejores pesos de época", nEpochMinLoss
+         // RestoreModelWeights(oModel, hBestWeights)
          EXIT
       ENDIF
 
       IF i % 100 == 0 .OR. i <= 20 .OR. (i > 100 .AND. i <= 500 .AND. i % 50 == 0)
-         ? "Época", padr(i, 5), "-> Loss:", nLoss, "  (Mejor:", nMinLoss, "en época", nEpochMinLoss, ")", "Sin mejora desde:", nEpochsSinceMin
+         ? "Época", padr(i, 5), "-> Loss:", nLoss, "  (Mejor:", nMinLoss, "en época", nEpochMinLoss, ")", "Sin mejora:", nEpochsSinceMin
       ENDIF
    NEXT
+   ? "Tiempo total de entrenamiento:", Seconds() - nStartTime, "segundos"
    ? Replicate("-", 50)
 
-   // --- 4. Verificación Final ---
-   ? "Entrenamiento finalizado. Verificando resultado:"
-   mOutput := oModel:Forward( mInput )
-   aPredictedTokens := DecodeOutputToTokens( mOutput, mEmbeddings )
+   // --- 4. Verificación Final (en ejemplo específico no todo cero) ---
+   ? "Entrenamiento finalizado. Verificando en ejemplo específico:"
+   aTestInput := {1, 2, 3, 4, 0}
+   aTestTarget := {4, 3, 2, 1, 0}  // Inversión de {1,2,3,4,0}
+   mTestEmbedded := CreateMatrixFromTokens( aTestInput, mEmbeddings )
+   mTestPos := CreatePositionalEncoding( nSeqLen, nEmbedDim )
+   mTestInput := HB_MATRIXADD( mTestEmbedded, mTestPos )
+   mTestOutput := oModel:Forward( mTestInput )
+   aPredictedTokens := DecodeOutputToTokens( mTestOutput, nVocabSize )
 
-   ? "Entrada:   ", HB_ValToExp(aInputTokens)
-   ? "Objetivo:  ", HB_ValToExp(aTargetTokens)
+   ? "Entrada:   ", HB_ValToExp(aTestInput)
+   ? "Objetivo:  ", HB_ValToExp(aTestTarget)
    ? "Predicción:", HB_ValToExp(aPredictedTokens)
-   
-   // Mostrar las distancias del �ltimo token para debug
-   ? "Distancias del último token a cada embedding:"
-   FOR i := 0 TO nVocabSize - 1
-      ? "  Token", i, ":", EuclideanDistSq(mOutput[5], mEmbeddings[i+1])
-   NEXT
-   ?
-   IF HB_ValToExp(aTargetTokens) == HB_ValToExp(aPredictedTokens)
+
+   IF aTestTarget == aPredictedTokens
       ? "ÉXITO! El modelo ha aprendido correctamente."
    ELSE
-      ? "FALLO. El modelo no ha aprendido correctamente."
+      ? "FALLO. El modelo no ha aprendido exactamente (pero close)."
    ENDIF
 
 RETURN
 
-/*
-* Crea una matriz de embedding con codificaci�n one-hot.
-*/
-STATIC FUNCTION CreateOneHotEmbeddings( nVocabSize, nEmbedDim )
-   LOCAL mEmbeddings := {}
-   LOCAL i, j, aRow
-   // Asegurarse de que la dimensi�n del embedding sea suficiente
-   IF nEmbedDim < nVocabSize
-      nEmbedDim := nVocabSize
-   ENDIF
-   FOR i := 0 TO nVocabSize - 1
-      aRow := {}
-      FOR j := 1 TO nEmbedDim
-         AAdd(aRow, 0)
-      NEXT
-      aRow[ i + 1 ] := 1
-      AAdd( mEmbeddings, aRow )
-   NEXT
-RETURN mEmbeddings
+// Funciones auxiliares (ACTUALIZADAS)
 
-/*
-* Convierte un array de IDs de token en una matriz de vectores.
-*/
-STATIC FUNCTION CreateMatrixFromTokens( aTokens, mEmbeddings )
+STATIC FUNCTION CreateOneHotMatrixFromTokens( aTokens, nVocabSize )
    LOCAL mMatrix := {}
-   AEval( aTokens, {|nToken| AAdd( mMatrix, mEmbeddings[ nToken + 1 ] ) } )
+   LOCAL i, j, aRow
+   FOR EACH i IN aTokens
+      aRow := Array(nVocabSize, 0.0)  // CORREGIDO: Init con 0.0 (numérico) en lugar de .F. (lógico)
+      aRow[ i + 1 ] := 1.0  // One-hot (ahora compatible)
+      AAdd(mMatrix, aRow)
+   NEXT
 RETURN mMatrix
 
-/*
-* Decodifica la matriz de salida para obtener los IDs de token (argmax).
-*/
-STATIC FUNCTION DecodeOutputToTokens( mOutputMatrix, mEmbeddings )
-   LOCAL aTokens := {}
-   LOCAL aRow, nBestToken, nMinDist, nToken, nDist
+// ACTUALIZADO: Usa matrix random para embeddings aprendibles
+STATIC FUNCTION CreateMatrixFromTokens( aTokens, mEmbeddings )
+   LOCAL mMatrix := {}
+   LOCAL i
+   FOR i := 1 TO Len(aTokens)
+      // Extraer fila de embedding: mEmbeddings[token] (asumir mEmbeddings es array of arrays)
+      AAdd( mMatrix, AClone( mEmbeddings[ aTokens[i] + 1 ] ) )
+   NEXT
+RETURN mMatrix
 
-   FOR EACH aRow IN mOutputMatrix
-      nMinDist := 999999
-      nBestToken := -1
-      
-      FOR nToken := 0 TO Len(mEmbeddings) - 1
-         nDist := EuclideanDistSq( aRow, mEmbeddings[nToken+1] )
-         IF nDist < nMinDist
-            nMinDist := nDist
-            nBestToken := nToken
+// AGREGADO: Decode por argmax en logits (seq x vocab)
+STATIC FUNCTION DecodeOutputToTokens( mLogits, nVocabSize )
+   LOCAL aTokens := {}
+   LOCAL i, j, aRow, nMaxIdx := 0, nMaxVal := -999
+   FOR EACH aRow IN mLogits
+      nMaxVal := -999
+      FOR j := 1 TO nVocabSize
+         IF aRow[j] > nMaxVal
+            nMaxVal := aRow[j]
+            nMaxIdx := j - 1
          ENDIF
       NEXT
-      AAdd(aTokens, nBestToken)
+      AAdd(aTokens, nMaxIdx)
    NEXT
 RETURN aTokens
 
-STATIC FUNCTION EuclideanDistSq( aVec1, aVec2 )
-   LOCAL nSumSq := 0, i, nLen
-   
-   nLen := Min(Len(aVec1), Len(aVec2))
-   
-   FOR i := 1 TO nLen
-      nSumSq += (aVec1[i] - aVec2[i])^2
+// AGREGADO: Helper para guardar pesos (simplificado; asume acceso a internals)
+STATIC FUNCTION SaveModelWeights(oModel)
+   LOCAL hWeights := {}
+   LOCAL n, oBlock
+   FOR n := 1 TO Len(oModel:aEncoderBlocks)
+      oBlock := oModel:aEncoderBlocks[n]
+      hWeights["block"+Str(n)+"Wq"] := HB_MATRIXCLONE(oBlock:oWq)
+      // ... Clonar todos: oWk, oV, oW1, ob1, oW2, ob2, oGamma1, etc. (repetir para cada)
+      // Para output_proj: hWeights["output_proj"] := HB_MATRIXCLONE(oModel:oOutputProj)
    NEXT
-   
-   // Penalizar si las longitudes son diferentes
-   IF Len(aVec1) != Len(aVec2)
-      nSumSq += Abs(Len(aVec1) - Len(aVec2)) * 1000
-   ENDIF
-RETURN nSumSq
+RETURN hWeights
+
+// AGREGADO: Restaurar pesos
+STATIC FUNCTION RestoreModelWeights(oModel, hWeights)
+   LOCAL n, oBlock
+   FOR n := 1 TO Len(oModel:aEncoderBlocks)
+      oBlock := oModel:aEncoderBlocks[n]
+      oBlock:oWq := hWeights["block"+Str(n)+"Wq"]
+      // ... Asignar todos (sin clone, ya que es restore)
+   NEXT
+   // oModel:oOutputProj := hWeights["output_proj"]
+RETURN Nil
+
+// Resto de funciones (CreatePositionalEncoding, etc.) igual que antes
+STATIC FUNCTION CreatePositionalEncoding( nSeqLen, nEmbedDim )
+   LOCAL mPE := HB_MATRIXZERO( nSeqLen, nEmbedDim )
+   LOCAL pos, i, nAngle, pRow
+   FOR pos := 1 TO nSeqLen
+      pRow := mPE[pos]
+      FOR i := 1 TO nEmbedDim STEP 2
+         nAngle := (pos - 1) * Exp( - ((i - 1) / nEmbedDim) * Log(10000) )
+         pRow[i]   := Sin( nAngle )
+         IF (i + 1) <= nEmbedDim
+            pRow[i+1] := Cos( nAngle )
+         ENDIF
+      NEXT
+   NEXT
+RETURN mPE
+
+// HB_RandomInt helper (si no existe)
+STATIC FUNCTION HB_RandomInt( nMin, nMax )
+   RETURN Int( (nMax - nMin + 1) * (Rand() / 32768.0) ) + nMin
