@@ -23,8 +23,9 @@ PROCEDURE Main()
    LOCAL nEmbedDim := 5  // Reducido para más velocidad
    LOCAL nHiddenDim := 10
    LOCAL nHeadDim := 5     // Debe coincidir con nEmbedDim para suma residual
-   LOCAL nEpochs := 100
-   LOCAL nLearningRate := 0.01
+   LOCAL nEpochs := 1000
+   LOCAL nLearningRate := 0.001
+   LOCAL nDropoutRate := 0.1
    LOCAL oModel, mEmbeddings, mInput, mTarget, mOutput, nLoss, dLoss, i
    LOCAL nMinLoss := 999999, nEpochMinLoss := 0, nEpochsSinceMin := 0
    LOCAL hBestWeights := {} // AGREGADO: Para guardar mejores pesos
@@ -58,7 +59,7 @@ PROCEDURE Main()
    AAdd(aAllTargets, {1, 2, 3, 4, 0})
 
    // Crear el modelo Transformer
-   oModel := TransformerModel():New( nLayers, nEmbedDim, nHiddenDim, nHeadDim, nVocabSize )
+   oModel := TransformerModel():New( nLayers, nEmbedDim, nHiddenDim, nHeadDim, nVocabSize, nDropoutRate )
 
    ? "Iniciando entrenamiento (con Embeddings aprendibles, CE Loss y Adam)..."
    ? "Vocab:", nVocabSize, "Embed:", nEmbedDim, "Ejemplos:", Len(aAllInputs)
