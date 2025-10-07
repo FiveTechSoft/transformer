@@ -1334,7 +1334,8 @@ HB_FUNC( HB_MSE_LOSS_BACKWARD )
 * HB_FUNC( HB_CROSSENTROPYLOSS_BACKWARD )
 * ---------------------------------------
 * Calcula el gradiente de la pérdida Cross-Entropy w.r.t. las probabilidades (o logits pre-softmax).
-* Para CE + softmax combinado, dLoss/dProbs = (probs - targets) / batch_size (media).
+* Para CE + softmax combinado, dLoss/dProbs = (probs - targets).
+* El escalado por tamaño de lote se debe hacer en el código de Harbour.
 * Asume probs es matriz softmax (batch x vocab), targets one-hot (batch x vocab).
 * Retorna matriz de gradientes (batch x vocab).
 */
@@ -1343,8 +1344,7 @@ HB_FUNC( HB_CROSSENTROPYLOSS_BACKWARD )
    // --- Variable declarations (C89) ---
    PHB_ITEM pProbs = hb_param(1, HB_IT_ARRAY);
    PHB_ITEM pTargets = hb_param(2, HB_IT_ARRAY);
-   HB_SIZE nRows, nCols, i, j;
-   double scalar;
+   HB_SIZE nRows, nCols;
    PHB_ITEM pGrad;
 
    // --- Validación ---
@@ -1371,17 +1371,6 @@ HB_FUNC( HB_CROSSENTROPYLOSS_BACKWARD )
 
    // --- Gradiente base: probs - targets ---
    pGrad = matrix_sub( pProbs, pTargets );  // Reutiliza worker
-
-   // --- Escalar por batch_size (media) ---
-   scalar = 1.0 / (double) nRows;
-   for( i = 0; i < nRows; i++ )
-   {
-      PHB_ITEM pRow = hb_arrayGetItemPtr( pGrad, i + 1 );
-      for( j = 0; j < nCols; j++ )
-      {
-         hb_arraySetND( pRow, j + 1, hb_arrayGetND( pRow, j + 1 ) * scalar );
-      }
-   }
 
    // --- Retorno ---
    hb_itemReturnRelease( pGrad );

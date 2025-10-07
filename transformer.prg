@@ -20,13 +20,14 @@ CLASS TransformerEncoderBlock
    // Cache (AGREGADO: cPreNorm1 y cPreNorm2 para LayerNorm backward)
    DATA cInput, cNormalized1, cActivated, cQ, cK, cV, cAttentionWeights, cPreNorm1, cPreNorm2
    // Otros
-   DATA nInputDim, nHiddenDim, nHeadDim, nTimeStep
+   DATA nInputDim, nHiddenDim, nHeadDim
 
    METHOD New( nInputDim, nHiddenDim, nHeadDim ) CONSTRUCTOR
    METHOD Forward( mInput )
    METHOD Backward( mDOutput )
    METHOD ZeroGrads()
-   METHOD Update( nLr )
+   METHOD Update( nLr, nTimeStep )
+   METHOD ScaleGrads( nScaler )
 ENDCLASS
 
 /*
@@ -36,7 +37,6 @@ METHOD New( nInputDim, nHiddenDim, nHeadDim ) CLASS TransformerEncoderBlock
    ::nInputDim  := nInputDim
    ::nHiddenDim := nHiddenDim
    ::nHeadDim   := nHeadDim  // Asumir nHeadDim == nInputDim para suma residual
-   ::nTimeStep  := 0
 
    // Inicializar Pesos
    ::oWq := HB_MATRIXRANDOM( nInputDim, nHeadDim )
@@ -183,21 +183,34 @@ METHOD Backward( mDOutput ) CLASS TransformerEncoderBlock
 RETURN mDInput
 
 /*
-* Update( nLr ) (Sin cambios: Usa HB_ADAMUPDATE correctamente)
+* Update( nLr, nTimeStep )
 */
-METHOD Update( nLr ) CLASS TransformerEncoderBlock
-   ::nTimeStep++
-   HB_ADAMUPDATE( ::oWq, ::gWq, ::mM_Wq, ::mV_Wq, ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
-   HB_ADAMUPDATE( ::oWk, ::gWk, ::mM_Wk, ::mV_Wk, ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
-   HB_ADAMUPDATE( ::oV,  ::gV,  ::mM_V,  ::mV_V,  ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
-   HB_ADAMUPDATE( ::oW1, ::gW1, ::mM_W1, ::mV_W1, ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
-   HB_ADAMUPDATE( ::ob1, ::gb1, ::mM_b1, ::mV_b1, ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
-   HB_ADAMUPDATE( ::oW2, ::gW2, ::mM_W2, ::mV_W2, ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
-   HB_ADAMUPDATE( ::ob2, ::gb2, ::mM_b2, ::mV_b2, ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
-   HB_ADAMUPDATE( ::oGamma1, ::gGamma1, ::mM_Gamma1, ::mV_Gamma1, ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
-   HB_ADAMUPDATE( ::oBeta1,  ::gBeta1,  ::mM_Beta1,  ::mV_Beta1,  ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
-   HB_ADAMUPDATE( ::oGamma2, ::gGamma2, ::mM_Gamma2, ::mV_Gamma2, ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
-   HB_ADAMUPDATE( ::oBeta2,  ::gBeta2,  ::mM_Beta2,  ::mV_Beta2,  ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
+METHOD Update( nLr, nTimeStep ) CLASS TransformerEncoderBlock
+   HB_ADAMUPDATE( ::oWq, ::gWq, ::mM_Wq, ::mV_Wq, nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
+   HB_ADAMUPDATE( ::oWk, ::gWk, ::mM_Wk, ::mV_Wk, nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
+   HB_ADAMUPDATE( ::oV,  ::gV,  ::mM_V,  ::mV_V,  nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
+   HB_ADAMUPDATE( ::oW1, ::gW1, ::mM_W1, ::mV_W1, nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
+   HB_ADAMUPDATE( ::ob1, ::gb1, ::mM_b1, ::mV_b1, nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
+   HB_ADAMUPDATE( ::oW2, ::gW2, ::mM_W2, ::mV_W2, nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
+   HB_ADAMUPDATE( ::ob2, ::gb2, ::mM_b2, ::mV_b2, nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
+   HB_ADAMUPDATE( ::oGamma1, ::gGamma1, ::mM_Gamma1, ::mV_Gamma1, nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
+   HB_ADAMUPDATE( ::oBeta1,  ::gBeta1,  ::mM_Beta1,  ::mV_Beta1,  nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
+   HB_ADAMUPDATE( ::oGamma2, ::gGamma2, ::mM_Gamma2, ::mV_Gamma2, nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
+   HB_ADAMUPDATE( ::oBeta2,  ::gBeta2,  ::mM_Beta2,  ::mV_Beta2,  nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
+RETURN Nil
+
+METHOD ScaleGrads( nScaler ) CLASS TransformerEncoderBlock
+   ::gWq     := HB_MATRIXMULSCALAR( ::gWq, nScaler )
+   ::gWk     := HB_MATRIXMULSCALAR( ::gWk, nScaler )
+   ::gV      := HB_MATRIXMULSCALAR( ::gV, nScaler )
+   ::gW1     := HB_MATRIXMULSCALAR( ::gW1, nScaler )
+   ::gb1     := HB_MATRIXMULSCALAR( ::gb1, nScaler )
+   ::gW2     := HB_MATRIXMULSCALAR( ::gW2, nScaler )
+   ::gb2     := HB_MATRIXMULSCALAR( ::gb2, nScaler )
+   ::gGamma1 := HB_MATRIXMULSCALAR( ::gGamma1, nScaler )
+   ::gBeta1  := HB_MATRIXMULSCALAR( ::gBeta1, nScaler )
+   ::gGamma2 := HB_MATRIXMULSCALAR( ::gGamma2, nScaler )
+   ::gBeta2  := HB_MATRIXMULSCALAR( ::gBeta2, nScaler )
 RETURN Nil
 
 /*
@@ -207,6 +220,7 @@ CLASS TransformerModel
    DATA aEncoderBlocks, nLayers, oOutputProj, oOutputProjGrad, mLastBlockOutput
    DATA oOutputProj_m, oOutputProj_v, nTimeStep
    DATA oEmbeddings, oEmbeddingsGrad, oEmbeddings_m, oEmbeddings_v, nVocabSize, nEmbedDim
+   DATA nBackwardCalls // AGREGADO: para contar el tamaño del lote
    METHOD New( nLayers, nInputDim, nHiddenDim, nHeadDim, nVocabSize ) CONSTRUCTOR
    METHOD Forward( mInput )
    METHOD Backward( mDOutput )
@@ -233,17 +247,29 @@ METHOD New( nLayers, nInputDim, nHiddenDim, nHeadDim, nVocabSize ) CLASS Transfo
    ::oEmbeddings_v := HB_MATRIXZERO( nVocabSize, nInputDim )
    ::mLastBlockOutput := Nil
    ::nTimeStep := 0
+   ::nBackwardCalls := 0 // AGREGADO
 RETURN Self
 
 METHOD ZeroGrads() CLASS TransformerModel
    AEval( ::aEncoderBlocks, {|oBlock| oBlock:ZeroGrads()} )
    ::oOutputProjGrad := HB_MATRIXZERO( Len(::oOutputProjGrad), Len(::oOutputProjGrad[1]) )
    ::oEmbeddingsGrad := HB_MATRIXZERO( ::nVocabSize, ::nEmbedDim )
+   ::nBackwardCalls := 0 // AGREGADO: Resetear contador de lote
 RETURN Nil
 
 METHOD Update( nLr ) CLASS TransformerModel
-   AEval( ::aEncoderBlocks, {|oBlock| oBlock:Update(nLr)} )
+   LOCAL nBatchSize, nScaler
+   nBatchSize := IIf( ::nBackwardCalls > 0, ::nBackwardCalls, 1 )
+   nScaler := 1.0 / nBatchSize
+
+   // Escalar gradientes por tamaño de lote
+   ::oOutputProjGrad := HB_MATRIXMULSCALAR( ::oOutputProjGrad, nScaler )
+   ::oEmbeddingsGrad := HB_MATRIXMULSCALAR( ::oEmbeddingsGrad, nScaler )
+   AEval( ::aEncoderBlocks, {|oBlock| oBlock:ScaleGrads(nScaler)} )
+
+   // Ahora actualiza los pesos
    ::nTimeStep++
+   AEval( ::aEncoderBlocks, {|oBlock| oBlock:Update(nLr, ::nTimeStep)} )
    HB_ADAMUPDATE( ::oOutputProj, ::oOutputProjGrad, ::oOutputProj_m, ::oOutputProj_v, ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
    HB_ADAMUPDATE( ::oEmbeddings, ::oEmbeddingsGrad, ::oEmbeddings_m, ::oEmbeddings_v, ::nTimeStep, nLr, 0.9, 0.999, 0.00000001 )
 RETURN Nil
@@ -258,6 +284,8 @@ RETURN mInput
 
 METHOD Backward( mDOutput ) CLASS TransformerModel
    LOCAL i
+   ::nBackwardCalls++ // AGREGADO: Contar la llamada para el tamaño del lote
+
    // Backward through output projection
    ::oOutputProjGrad := HB_MATRIXADD( ::oOutputProjGrad, HB_MATRIXMULTIPLY( HB_MATRIXTRANSPOSE(::mLastBlockOutput), mDOutput ) )
    mDOutput := HB_MATRIXMULTIPLY( mDOutput, HB_MATRIXTRANSPOSE(::oOutputProj) )
