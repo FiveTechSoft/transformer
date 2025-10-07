@@ -1,1 +1,1 @@
-# Harbour Transformer (based on "Attention is all need")
+# Harbour Transformer (based on "Attention is all you need")
