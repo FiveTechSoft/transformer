@@ -54,8 +54,8 @@ PROCEDURE Main()
    NEXT
 
    // Agregar la secuencia de prueba al entrenamiento para asegurar aprendizaje
-   AAdd(aAllInputs, {1, 2, 3, 4, 0})
-   AAdd(aAllTargets, {4, 3, 2, 1, 0})
+   AAdd(aAllInputs, {4, 3, 2, 1, 0})
+   AAdd(aAllTargets, {1, 2, 3, 4, 0})
 
    // Crear el modelo Transformer
    oModel := TransformerModel():New( nLayers, nEmbedDim, nHiddenDim, nHeadDim, nVocabSize )
