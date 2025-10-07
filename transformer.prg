@@ -1,6 +1,32 @@
 #include "hbclass.ch"
 
 /*
+* Clase: DropoutLayer
+* -------------------
+* Implementa una capa de dropout para regularización.
+*/
+CLASS DropoutLayer
+   DATA rate, mask, is_training
+   METHOD New( rate ) CONSTRUCTOR
+   METHOD Forward( input )
+   METHOD Backward( grad_output )
+ENDCLASS
+
+METHOD New( rate ) CLASS DropoutLayer
+   ::rate := rate
+   ::is_training := .T. // Por defecto en modo entrenamiento
+RETURN Self
+
+METHOD Forward( input ) CLASS DropoutLayer
+   LOCAL aResult
+   aResult := HB_DROPOUT( input, ::rate, ::is_training )
+   ::mask := aResult[2]
+RETURN aResult[1]
+
+METHOD Backward( grad_output ) CLASS DropoutLayer
+RETURN HB_DROPOUT_BACKWARD( grad_output, ::mask )
+
+/*
 * Clase: TransformerEncoderBlock
 * -------------------------------
 * Implementa un único bloque Encoder, capaz de realizar el forward pass,
@@ -21,8 +47,9 @@ CLASS TransformerEncoderBlock
    DATA cInput, cNormalized1, cActivated, cQ, cK, cV, cAttentionWeights, cPreNorm1, cPreNorm2
    // Otros
    DATA nInputDim, nHiddenDim, nHeadDim
+   DATA oDropout1, oDropout2
 
-   METHOD New( nInputDim, nHiddenDim, nHeadDim ) CONSTRUCTOR
+   METHOD New( nInputDim, nHiddenDim, nHeadDim, dropout_rate ) CONSTRUCTOR
    METHOD Forward( mInput )
    METHOD Backward( mDOutput )
    METHOD ZeroGrads()
@@ -33,10 +60,12 @@ ENDCLASS
 /*
 * CONSTRUCTOR (CORREGIDO: Inicializa momentos a cero explícitamente)
 */
-METHOD New( nInputDim, nHiddenDim, nHeadDim ) CLASS TransformerEncoderBlock
+METHOD New( nInputDim, nHiddenDim, nHeadDim, dropout_rate ) CLASS TransformerEncoderBlock
    ::nInputDim  := nInputDim
    ::nHiddenDim := nHiddenDim
    ::nHeadDim   := nHeadDim  // Asumir nHeadDim == nInputDim para suma residual
+   ::oDropout1  := DropoutLayer():New( dropout_rate )
+   ::oDropout2  := DropoutLayer():New( dropout_rate )
 
    // Inicializar Pesos
    ::oWq := HB_MATRIXRANDOM( nInputDim, nHeadDim )
@@ -98,6 +127,7 @@ METHOD Forward( mInput ) CLASS TransformerEncoderBlock
    mScores := HB_MATRIXDIVSCALAR( mScores, Sqrt(::nHeadDim) )
    ::cAttentionWeights := HB_SOFTMAX( mScores )
    mAttentionOutput  := HB_MATRIXMULTIPLY( ::cAttentionWeights, ::cV )
+   mAttentionOutput  := ::oDropout1:Forward( mAttentionOutput )
 
    // 2. Add & Norm 1 (CORREGIDO: Cachear pre-norm)
    mSublayer1   := HB_MATRIXADD( mInput, mAttentionOutput )
@@ -110,6 +140,7 @@ METHOD Forward( mInput ) CLASS TransformerEncoderBlock
    ::cActivated := HB_RELU( mWithBias1 )
    mLinear2   := HB_MATRIXMULTIPLY( ::cActivated, ::oW2 )
    mFFN_Output := HB_MATRIXADDBROADCAST( mLinear2, ::ob2 )
+   mFFN_Output := ::oDropout2:Forward( mFFN_Output )
 
    // 4. Add & Norm 2 (CORREGIDO: Cachear pre-norm)
    mSublayer2   := HB_MATRIXADD( ::cNormalized1, mFFN_Output )  // Nota: Residual desde normalized1
@@ -135,6 +166,7 @@ METHOD Backward( mDOutput ) CLASS TransformerEncoderBlock
    mDNormalized1  := mDFFN_Output  // Gradiente de la conexión residual (desde FFN a normalized1)
 
    // --- Backprop a través de Feed-Forward ---
+   mDFFN_Output   := ::oDropout2:Backward( mDFFN_Output )
    aGrads      := HB_MATRIXADDBROADCAST_BACKWARD( mDFFN_Output )
    mDLinear2   := aGrads[1]
    ::gb2       := HB_MATRIXADD( ::gb2, aGrads[2] )
@@ -157,6 +189,7 @@ METHOD Backward( mDOutput ) CLASS TransformerEncoderBlock
    mDInput_from_res1 := mDAttentionOutput  // Grad residual de atención a input
 
    // --- Backprop a través de Self-Attention ---
+   mDAttentionOutput  := ::oDropout1:Backward( mDAttentionOutput )
    aGrads             := HB_MATRIXMULTIPLY_BACKWARD( mDAttentionOutput, ::cAttentionWeights, ::cV )
    mDAttentionWeights := aGrads[1]
    mDV                := aGrads[2]
@@ -220,22 +253,23 @@ CLASS TransformerModel
    DATA aEncoderBlocks, nLayers, oOutputProj, oOutputProjGrad, mLastBlockOutput
    DATA oOutputProj_m, oOutputProj_v, nTimeStep
    DATA oEmbeddings, oEmbeddingsGrad, oEmbeddings_m, oEmbeddings_v, nVocabSize, nEmbedDim
-   DATA nBackwardCalls // AGREGADO: para contar el tamaño del lote
-   METHOD New( nLayers, nInputDim, nHiddenDim, nHeadDim, nVocabSize ) CONSTRUCTOR
+   DATA nBackwardCalls, oEmbeddingDropout
+   METHOD New( nLayers, nInputDim, nHiddenDim, nHeadDim, nVocabSize, dropout_rate ) CONSTRUCTOR
    METHOD Forward( mInput )
    METHOD Backward( mDOutput )
    METHOD ZeroGrads()
    METHOD Update( nLr )
 ENDCLASS
 
-METHOD New( nLayers, nInputDim, nHiddenDim, nHeadDim, nVocabSize ) CLASS TransformerModel
+METHOD New( nLayers, nInputDim, nHiddenDim, nHeadDim, nVocabSize, dropout_rate ) CLASS TransformerModel
    LOCAL i
    ::nLayers := nLayers
    ::nVocabSize := nVocabSize
    ::nEmbedDim := nInputDim  // Assuming embed dim == input dim
+   ::oEmbeddingDropout := DropoutLayer():New( dropout_rate )
    ::aEncoderBlocks := {}
    FOR i := 1 TO nLayers
-      AAdd( ::aEncoderBlocks, TransformerEncoderBlock():New( nInputDim, nHiddenDim, nHeadDim ) )
+      AAdd( ::aEncoderBlocks, TransformerEncoderBlock():New( nInputDim, nHiddenDim, nHeadDim, dropout_rate ) )
    NEXT
    ::oOutputProj := HB_MATRIXRANDOM( nInputDim, nVocabSize )
    ::oOutputProjGrad := HB_MATRIXZERO( nInputDim, nVocabSize )
@@ -276,6 +310,7 @@ RETURN Nil
 
 METHOD Forward( mInput ) CLASS TransformerModel
    LOCAL mLastBlockOutput
+   mInput := ::oEmbeddingDropout:Forward( mInput )
    AEval( ::aEncoderBlocks, {|oBlock| mInput := oBlock:Forward(mInput)} )
    mLastBlockOutput := mInput
    mInput := HB_MATRIXMULTIPLY( mInput, ::oOutputProj )

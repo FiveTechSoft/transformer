@@ -55,6 +55,8 @@ HB_FUNC( HB_SGD_UPDATE );
 HB_FUNC( HB_ADAMUPDATE );
 
 // --- Prototipos de Backpropagation (API para Harbour) ---
+HB_FUNC( HB_DROPOUT );
+HB_FUNC( HB_DROPOUT_BACKWARD );
 HB_FUNC( HB_SOFTMAXBACKWARD );
 HB_FUNC( HB_RELU_BACKWARD );
 HB_FUNC( HB_MATRIXMULTIPLY_BACKWARD );
@@ -1374,4 +1376,138 @@ HB_FUNC( HB_CROSSENTROPYLOSS_BACKWARD )
 
    // --- Retorno ---
    hb_itemReturnRelease( pGrad );
+}
+
+/*
+* HB_FUNC( HB_DROPOUT )
+* ---------------------
+* Aplica dropout a una matriz. Durante el entrenamiento, pone a cero aleatoriamente
+* algunos elementos con una probabilidad `rate` y escala los demás por `1 / (1 - rate)`.
+*
+* Parámetros de Harbour:
+* 1. pMatrix: La matriz de entrada.
+* 2. pRate: La probabilidad de dropout (un número).
+* 3. pIsTraining: Un valor lógico que indica si está en modo de entrenamiento.
+*
+* Retorna:
+* Un array de 2 elementos: { pResultMatrix, pMaskMatrix }
+* pResultMatrix es la matriz con dropout aplicado.
+* pMaskMatrix es la máscara utilizada (necesaria para el backward pass).
+* Si no está en entrenamiento, devuelve la matriz original y una máscara de unos.
+*/
+HB_FUNC( HB_DROPOUT )
+{
+    PHB_ITEM pMatrix = hb_param( 1, HB_IT_ARRAY );
+    double   rate    = hb_parnd( 2 );
+    int      isTraining = hb_parl( 3 );
+    HB_SIZE  nRows, nCols, i, j;
+    PHB_ITEM pResult, pMask, pResultRow, pMaskRow, pRow;
+    double   scale;
+
+    if( !pMatrix ) { hb_ret(); return; }
+
+    nRows = hb_arrayLen( pMatrix );
+    if ( nRows == 0 ) { hb_ret(); return; }
+    nCols = hb_arrayLen( hb_arrayGetItemPtr( pMatrix, 1 ) );
+
+    pResult = matrix_zero( nRows, nCols );
+    pMask   = matrix_zero( nRows, nCols );
+
+    if( !isTraining || rate == 0.0 )
+    {
+        // Si no está en entrenamiento o la tasa es 0, no hacer nada.
+        // Solo devolver la matriz original y una máscara de unos.
+        hb_itemRelease( pResult );
+        pResult = hb_itemClone( pMatrix );
+        for( i = 0; i < nRows; i++ )
+        {
+           pMaskRow = hb_arrayGetItemPtr(pMask, i + 1);
+           for( j = 0; j < nCols; j++ ) { hb_arraySetND( pMaskRow, j + 1, 1.0 ); }
+        }
+    }
+    else
+    {
+        scale = 1.0 / ( 1.0 - rate );
+        for( i = 0; i < nRows; i++ )
+        {
+            pRow       = hb_arrayGetItemPtr( pMatrix, i + 1 );
+            pResultRow = hb_arrayGetItemPtr( pResult, i + 1 );
+            pMaskRow   = hb_arrayGetItemPtr( pMask, i + 1 );
+            for( j = 0; j < nCols; j++ )
+            {
+                if( ( (double)rand() / RAND_MAX ) < rate )
+                {
+                    hb_arraySetND( pResultRow, j + 1, 0.0 );
+                    hb_arraySetND( pMaskRow, j + 1, 0.0 );
+                }
+                else
+                {
+                    hb_arraySetND( pResultRow, j + 1, hb_arrayGetND( pRow, j + 1 ) * scale );
+                    hb_arraySetND( pMaskRow, j + 1, scale );
+                }
+            }
+        }
+    }
+
+    // Devolver un array con la matriz resultado y la máscara
+    PHB_ITEM pReturnArray = hb_itemArrayNew( 2 );
+    hb_arraySet( pReturnArray, 1, pResult );
+    hb_arraySet( pReturnArray, 2, pMask );
+    hb_itemRelease( pResult );
+    hb_itemRelease( pMask );
+    hb_itemReturnRelease( pReturnArray );
+}
+
+
+/*
+* static PHB_ITEM matrix_elem_mult( PHB_ITEM pMatrix1, PHB_ITEM pMatrix2 )
+* ----------------------------------------------------------------------
+* WORKER para la multiplicación elemento a elemento.
+*/
+static PHB_ITEM matrix_elem_mult( PHB_ITEM pMatrix1, PHB_ITEM pMatrix2 )
+{
+   HB_SIZE nRows, nCols, i, j;
+   PHB_ITEM pResult, pRow1, pRow2, pNewRow;
+
+   if( !pMatrix1 || !pMatrix2 || hb_arrayLen(pMatrix1) != hb_arrayLen(pMatrix2) ) return hb_itemArrayNew(0);
+   nRows = hb_arrayLen(pMatrix1);
+   if (nRows == 0) return hb_itemArrayNew(0);
+   nCols = hb_arrayLen(hb_arrayGetItemPtr(pMatrix1, 1));
+
+   pResult = hb_itemArrayNew( nRows );
+   for( i = 0; i < nRows; i++ )
+   {
+      pRow1 = hb_arrayGetItemPtr( pMatrix1, i + 1 );
+      pRow2 = hb_arrayGetItemPtr( pMatrix2, i + 1 );
+      pNewRow = hb_itemArrayNew( nCols );
+      for( j = 0; j < nCols; j++ )
+      {
+         hb_arraySetND( pNewRow, j + 1, hb_arrayGetND(pRow1, j+1) * hb_arrayGetND(pRow2, j+1) );
+      }
+      hb_arraySet( pResult, i + 1, pNewRow );
+      hb_itemRelease( pNewRow );
+   }
+   return pResult;
+}
+
+/*
+* HB_FUNC( HB_DROPOUT_BACKWARD )
+* ------------------------------
+* Calcula el gradiente a través de una capa de dropout.
+* Simplemente aplica la máscara al gradiente de la capa siguiente.
+*
+* Parámetros de Harbour:
+* 1. pDOutput: El gradiente de la capa siguiente.
+* 2. pMask: La máscara generada durante el forward pass de dropout.
+*
+* Retorna:
+* El gradiente con respecto a la entrada de la capa de dropout (dOutput * mask).
+*/
+HB_FUNC( HB_DROPOUT_BACKWARD )
+{
+    PHB_ITEM pDOutput = hb_param( 1, HB_IT_ARRAY );
+    PHB_ITEM pMask    = hb_param( 2, HB_IT_ARRAY );
+
+    // El backward pass es simplemente una multiplicación elemento a elemento
+    hb_itemReturnRelease( matrix_elem_mult( pDOutput, pMask ) );
 }
