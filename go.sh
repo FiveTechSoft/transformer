@@ -1,1 +1,1 @@
-/Users/usuario/harbour/bin/darwin/clang/hbmk2 transformer.hbp
+./harbour-core/bin/linux/gcc/hbmk2 transformer.hbp -run

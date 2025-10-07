@@ -1,0 +1,10 @@
+# Ignore compiled binaries
+*.exe
+sample1
+
+# Ignore build artifacts
+*.o
+*.obj
+
+# Ignore local build logs
+build.log
