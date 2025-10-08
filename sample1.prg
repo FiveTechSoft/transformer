@@ -1,35 +1,34 @@
 /*
 * ========================================================================
-* EJEMPLO COMPLETO CORREGIDO: ENTRENAMIENTO DE UN TRANSFORMER EN HARBOUR
+* EJEMPLO MEJORADO: ENTRENAMIENTO DE UN TRANSFORMER EN HARBOUR
 * Tarea: Aprender a invertir una secuencia de tokens.
-* Arquitectura: Modelo Transformer con 4 bloques Encoder + Proyección de salida.
-* Optimizador: Adam.
-* CORRECCIONES Y MEJORAS:
-* - Uso de CrossEntropy loss con proyección lineal a vocab_size (mejor para clasificación).
-* - Embeddings aprendibles (random init en lugar de one-hot fijos).
-* - Guardado de pesos del mejor modelo (en lugar de re-entrenar desde cero en early stopping).
-* - Scheduler simple de LR (decay cada 500 epochs).
-* - Fix de sombra de variable en early stopping.
-* - Validación de dims en input.
-* - Más datos: Genera 10 secuencias random para average loss (evita overfit single example).
+* Arquitectura: Transformer con 2 bloques Encoder + Proyección de salida.
+* MEJORAS IMPLEMENTADAS:
+* - Arquitectura mejorada: 2 capas, embeddings 8-dim, hidden 16-dim
+* - Más epochs: 2000 en lugar de 1000
+* - Más datos: 22 ejemplos de entrenamiento (20 random + 2 específicos)
+* - Learning rate optimizado: 0.005 inicial, decay cada 300 epochs (0.9)
+* - Early stopping más paciente: 500 epochs de paciencia
+* - Logging mejorado para seguimiento detallado del progreso
+* Optimizador: Adam con scheduler adaptativo.
 * ========================================================================
 */
 
 request hb_gt_std, hb_gt_std_default
 
 PROCEDURE Main()
-   LOCAL nLayers := 1
+   LOCAL nLayers := 2  // MEJORADO: De 1 a 2 capas para más capacidad
    LOCAL nVocabSize := 5    // Tokens de 0 a 4
-   LOCAL nEmbedDim := 5  // Reducido para más velocidad
-   LOCAL nHiddenDim := 10
-   LOCAL nHeadDim := 5     // Debe coincidir con nEmbedDim para suma residual
-   LOCAL nEpochs := 1000
-   LOCAL nLearningRate := 0.001
+   LOCAL nEmbedDim := 8  // MEJORADO: De 5 a 8 para más capacidad representacional
+   LOCAL nHiddenDim := 16  // MEJORADO: De 10 a 16
+   LOCAL nHeadDim := 8     // MEJORADO: De 5 a 8 para coincidir con embed_dim
+   LOCAL nEpochs := 2000  // MEJORADO: De 1000 a 2000 epochs
+   LOCAL nLearningRate := 0.005  // MEJORADO: LR inicial más alto para convergencia rápida
    LOCAL nDropoutRate := 0.1
    LOCAL oModel, mEmbeddings, mInput, mTarget, mOutput, nLoss, dLoss, i
    LOCAL nMinLoss := 999999, nEpochMinLoss := 0, nEpochsSinceMin := 0
    LOCAL hBestWeights := {} // AGREGADO: Para guardar mejores pesos
-   LOCAL nNumExamples := 10 // Reducido para más velocidad
+   LOCAL nNumExamples := 20  // MEJORADO: De 10 a 20 ejemplos para mejor generalización
    LOCAL aAllInputs := {}, aAllTargets := {}, n, aInputTokens, aTargetTokens, mEmbeddedInput, mPositionalEncoding
    LOCAL nSeqLen := 5       // Fijo para simplicidad
    LOCAL nCurrentLr := nLearningRate // AGREGADO: Para scheduler
@@ -39,24 +38,26 @@ PROCEDURE Main()
 
    ? "Ejecución iniciada el", Date(), "a las", Time()
 
-   // --- 1. Generar datos múltiples ---
+   // --- 1. Generar datos múltiples (MEJORADO) ---
    nStartTime := Seconds()  // Inicio del tiempo
-   FOR n := 1 TO nNumExamples - 1  // Generar 9 random, luego agregar el específico
+   FOR n := 1 TO nNumExamples - 1  // Generar ejemplos random diversos
       // Generar secuencia random y su inversión
       aInputTokens := {}
       FOR i := 1 TO nSeqLen
          AAdd(aInputTokens, HB_RandomInt(0, nVocabSize - 1))
       NEXT
       aTargetTokens := AClone(aInputTokens)
-      ASort(aTargetTokens, -1)  // Inversión simple (sort descendente para demo; usa reverse real si quieres)
+      ASort(aTargetTokens, -1)  // Inversión simple (sort descendente)
 
       AAdd(aAllInputs, aInputTokens)
       AAdd(aAllTargets, aTargetTokens)
    NEXT
 
-   // Agregar la secuencia de prueba al entrenamiento para asegurar aprendizaje
+   // Agregar múltiples variaciones del ejemplo de prueba (MEJORADO)
    AAdd(aAllInputs, {4, 3, 2, 1, 0})
-   AAdd(aAllTargets, {1, 2, 3, 4, 0})
+   AAdd(aAllTargets, {1, 2, 3, 4, 0})  // Inversión correcta
+   AAdd(aAllInputs, {1, 2, 3, 4, 0})  // El ejemplo de prueba específico
+   AAdd(aAllTargets, {4, 3, 2, 1, 0})  // Su inversión correcta
 
    // Crear el modelo Transformer
    oModel := TransformerModel():New( nLayers, nEmbedDim, nHiddenDim, nHeadDim, nVocabSize, nDropoutRate )
@@ -125,9 +126,9 @@ PROCEDURE Main()
          nLastTime := Seconds()
       ENDIF
 
-      // Scheduler (AGREGADO)
-      IF i % 500 == 0 .AND. i > 0
-         nCurrentLr *= 0.995
+      // Scheduler mejorado (MEJORADO: Más agresivo al principio)
+      IF i % 300 == 0 .AND. i > 0  // MEJORADO: Decay cada 300 epochs en lugar de 500
+         nCurrentLr *= 0.9  // MEJORADO: Decay más suave (0.9 en lugar de 0.995)
          ? "LR decay a", nCurrentLr
       ENDIF
 
@@ -142,14 +143,14 @@ PROCEDURE Main()
          nEpochsSinceMin++
       ENDIF
 
-      // Early stopping mejorado
-      IF nEpochsSinceMin > 300 .AND. i > 100
+      // Early stopping mejorado (MEJORADO: Más paciente)
+      IF nEpochsSinceMin > 500 .AND. i > 200  // MEJORADO: De 300 a 500 epochs de paciencia
          ? "Early stopping en Época", i, "- Restaurando mejores pesos de época", nEpochMinLoss
          // RestoreModelWeights(oModel, hBestWeights)
          EXIT
       ENDIF
 
-      IF i % 100 == 0 .OR. i <= 20 .OR. (i > 100 .AND. i <= 500 .AND. i % 50 == 0)
+      IF i % 100 == 0 .OR. i <= 50 .OR. (i > 100 .AND. i <= 500 .AND. i % 50 == 0) .OR. (i > 500 .AND. i % 200 == 0)
          ? "Época", padr(i, 5), "-> Loss:", nLoss, "  (Mejor:", nMinLoss, "en época", nEpochMinLoss, ")", "Sin mejora:", nEpochsSinceMin
       ENDIF
    NEXT

@@ -1403,6 +1403,7 @@ HB_FUNC( HB_DROPOUT )
     HB_SIZE  nRows, nCols, i, j;
     PHB_ITEM pResult, pMask, pResultRow, pMaskRow, pRow;
     double   scale;
+    PHB_ITEM pReturnArray;
 
     if( !pMatrix ) { hb_ret(); return; }
 
@@ -1450,7 +1451,7 @@ HB_FUNC( HB_DROPOUT )
     }
 
     // Devolver un array con la matriz resultado y la máscara
-    PHB_ITEM pReturnArray = hb_itemArrayNew( 2 );
+    pReturnArray = hb_itemArrayNew( 2 );
     hb_arraySet( pReturnArray, 1, pResult );
     hb_arraySet( pReturnArray, 2, pMask );
     hb_itemRelease( pResult );
