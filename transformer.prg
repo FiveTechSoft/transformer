@@ -324,6 +324,7 @@ METHOD Backward( mDOutput ) CLASS TransformerModel
    // Backward through output projection
    ::oOutputProjGrad := HB_MATRIXADD( ::oOutputProjGrad, HB_MATRIXMULTIPLY( HB_MATRIXTRANSPOSE(::mLastBlockOutput), mDOutput ) )
    mDOutput := HB_MATRIXMULTIPLY( mDOutput, HB_MATRIXTRANSPOSE(::oOutputProj) )
+   mDOutput := ::oEmbeddingDropout:Backward( mDOutput )
    // Backward through blocks
    FOR i := ::nLayers TO 1 STEP -1
       mDOutput := ::aEncoderBlocks[i]:Backward( mDOutput )
