@@ -1,1 +1,0 @@
-./harbour-core/bin/linux/gcc/hbmk2 transformer.hbp -run
